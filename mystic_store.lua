@@ -5,8 +5,11 @@ local CG = game:GetService("CoreGui")
 
 local lp = Players.LocalPlayer
 
--- URL raw do Pastebin configurada para Auto Execute (com cache local e fallback)
-local AUTO_EXEC_URL = "https://pastebin.com/raw/dQEhdYNr"
+-- URLs raw para Auto Execute (GitHub Raw como prioridade + fallback Pastebin e cache local)
+local AUTO_EXEC_URLS = {
+	"https://raw.githubusercontent.com/wmrlq26-lab/Mh-kkj/refs/heads/main/mystic_store.lua",
+	"https://pastebin.com/raw/dQEhdYNr",
+}
 local AUTOEXEC_LOCAL_FILE = "mystic_store_autoexec.lua"
 local CONFIG_FILE = "mystic_store_config.txt"
 
@@ -449,48 +452,57 @@ local function normalizeRawUrl(url)
 	return url
 end
 
+local function getNormalizedUrlsList()
+	local out = {}
+	for _, u in ipairs(AUTO_EXEC_URLS or {}) do
+		local norm = normalizeRawUrl(u)
+		if norm ~= "" then
+			out[#out + 1] = norm
+		end
+	end
+	return out
+end
+
 local function isValidLuaBody(src)
 	if type(src) ~= "string" or src == "" then return false end
 	if src:find("<!DOCTYPE html", 1, true) or src:find("<html", 1, true) then return false end
 	return true
 end
 
-local function fetchRemoteScript(url)
-	local target = normalizeRawUrl(url)
-	if target == "" then return nil end
-
+local function fetchRemoteScriptFromList(urls)
 	local reqFn = getEnvFn({ "http_request", "request" })
-	if type(reqFn) == "function" then
-		local okReq, res = pcall(reqFn, {
-			Url = target,
-			Method = "GET",
-			Headers = {
-				["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-				["Accept"] = "*/*",
-			},
-		})
-		if okReq and type(res) == "table" and isValidLuaBody(res.Body) then
-			return res.Body
+	for _, target in ipairs(urls or {}) do
+		if type(reqFn) == "function" then
+			local okReq, res = pcall(reqFn, {
+				Url = target,
+				Method = "GET",
+				Headers = {
+					["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+					["Accept"] = "*/*",
+				},
+			})
+			if okReq and type(res) == "table" and isValidLuaBody(res.Body) then
+				return res.Body
+			end
+		end
+
+		local okHttp, body = pcall(function()
+			return game:HttpGet(target, true)
+		end)
+		if not okHttp or not isValidLuaBody(body) then
+			okHttp, body = pcall(function()
+				return game:HttpGet(target)
+			end)
+		end
+		if okHttp and isValidLuaBody(body) then
+			return body
 		end
 	end
-
-	local okHttp, body = pcall(function()
-		return game:HttpGet(target, true)
-	end)
-	if not okHttp or not isValidLuaBody(body) then
-		okHttp, body = pcall(function()
-			return game:HttpGet(target)
-		end)
-	end
-	if okHttp and isValidLuaBody(body) then
-		return body
-	end
-
 	return nil
 end
 
 local function prepareAutoExecCache()
-	local remoteCode = fetchRemoteScript(AUTO_EXEC_URL)
+	local remoteCode = fetchRemoteScriptFromList(getNormalizedUrlsList())
 	if type(remoteCode) == "string" and remoteCode ~= "" then
 		cachedAutoExecCode = remoteCode
 		if type(writefile) == "function" then
@@ -512,7 +524,12 @@ local function prepareAutoExecCache()
 end
 
 local function buildAutoExecPayload()
-	local rawUrl = normalizeRawUrl(AUTO_EXEC_URL)
+	local urls = getNormalizedUrlsList()
+	local quotedUrls = {}
+	for _, u in ipairs(urls) do
+		quotedUrls[#quotedUrls + 1] = escapeLuaStr(u)
+	end
+
 	local embeddedBlock = ""
 	if type(cachedAutoExecCode) == "string" and #cachedAutoExecCode > 0 and #cachedAutoExecCode < 180000 then
 		embeddedBlock = "  if not executed then executed = runSrc(" .. escapeLuaStr(cachedAutoExecCode) .. ") end\n"
@@ -536,14 +553,18 @@ local function buildAutoExecPayload()
 		"    if okRd and runSrc(localSrc) then executed = true end",
 		"  end",
 		"end",
-		"if not executed and " .. escapeLuaStr(rawUrl) .. " ~= '' then",
-		"  local okHttp, src = pcall(function() return game:HttpGet(" .. escapeLuaStr(rawUrl) .. ", true) end)",
-		"  if not okHttp or type(src) ~= 'string' or src == '' then",
-		"    okHttp, src = pcall(function() return game:HttpGet(" .. escapeLuaStr(rawUrl) .. ") end)",
-		"  end",
-		"  if okHttp and runSrc(src) then",
-		"    executed = true",
-		"    if type(writefile) == 'function' then pcall(writefile, " .. escapeLuaStr(AUTOEXEC_LOCAL_FILE) .. ", src) end",
+		"local candidateUrls = { " .. table.concat(quotedUrls, ", ") .. " }",
+		"if not executed and #candidateUrls > 0 then",
+		"  for _, target in ipairs(candidateUrls) do",
+		"    local okHttp, src = pcall(function() return game:HttpGet(target, true) end)",
+		"    if not okHttp or type(src) ~= 'string' or src == '' then",
+		"      okHttp, src = pcall(function() return game:HttpGet(target) end)",
+		"    end",
+		"    if okHttp and runSrc(src) then",
+		"      executed = true",
+		"      if type(writefile) == 'function' then pcall(writefile, " .. escapeLuaStr(AUTOEXEC_LOCAL_FILE) .. ", src) end",
+		"      break",
+		"    end",
 		"  end",
 		"end",
 		embeddedBlock .. "if not executed then",
@@ -1151,6 +1172,7 @@ autoExecToggle.MouseButton1Click:Connect(function()
 	autoExecToggle.TextColor3 = state.autoExec and T.text or T.muted
 	autoExecToggle.BackgroundColor3 = state.autoExec and T.accentD or T.btn
 	if state.autoExec then
+		queueTeleportActions(true)
 		task.spawn(function()
 			prepareAutoExecCache()
 			queueTeleportActions(true)
@@ -1167,7 +1189,10 @@ end)
 saveCfgBtn.MouseButton1Click:Connect(function()
 	saveConfigToFile()
 	if state.autoExec then
-		prepareAutoExecCache()
+		task.spawn(function()
+			prepareAutoExecCache()
+			queueTeleportActions(true)
+		end)
 	end
 	queueTeleportActions(true)
 	saveCfgBtn.Text = "SALVO"
