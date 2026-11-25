@@ -329,15 +329,14 @@ local function deduplicateById(list)
 	return out
 end
 
--- Garante que todas as skins Lenço (incluindo Lenço Fina) estejam na raridade ÉPICO na ordem
 local REQUIRED_LENCOS = {
-	{ id = "BonecoLencoBranco",   name = "LENÇO BRANCA",   matchKeys = { "lenco branco", "bonecolencobranco", "lencobranco" } },
-	{ id = "BonecoLencoVermelho", name = "LENÇO VERMELHA", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
-	{ id = "BonecoLencoPreto",    name = "LENÇO PRETA",    matchKeys = { "lenco preto", "lenco preta", "bonecolencopreto", "lencopreto" } },
-	{ id = "BonecoLencoFina",     name = "LENÇO FINA",     matchKeys = { "lenco fina", "bonecolencofina", "lencofina", "fina" } },
+	{ id = "BonecoLencoBranco",   name = "LENCO BRANCA",   matchKeys = { "lenco branco", "bonecolencobranco", "lencobranco" } },
+	{ id = "BonecoLencoVermelho", name = "LENCO VERMELHA", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
+	{ id = "BonecoLencoPreto",    name = "LENCO PRETA",    matchKeys = { "lenco preto", "lenco preta", "bonecolencopreto", "lencopreto" } },
+	{ id = "BonecoLencoFina",     name = "LENCO FINA",     matchKeys = { "lenco fina", "bonecolencofina", "lencofina", "fina" } },
 }
 
-local function matchLençoSlot(item)
+local function matchLencoSlot(item)
 	if not item then return nil end
 	local c = normalizeText(item.name) .. " " .. normalizeText(item.id)
 	local compact = c:gsub("%s+", "")
@@ -352,7 +351,6 @@ local function matchLençoSlot(item)
 	return nil
 end
 
--- Ordena todas as skins por raridade: COMUM -> RARO -> ÉPICO -> LENDÁRIO -> MÍTICO -> 13TH FRIDAY -> BETA -> SUMMER 1 -> SUMMER 2
 local function buildSkinsByRarityOrder(rawSkins)
 	local deduped = deduplicateById(rawSkins or { { id = "BonecoNoob", name = "NOOB" } })
 	local buckets = {}
@@ -362,7 +360,7 @@ local function buildSkinsByRarityOrder(rawSkins)
 
 	local foundLencos = {}
 	for _, item in ipairs(deduped) do
-		local slotIdx = matchLençoSlot(item)
+		local slotIdx = matchLencoSlot(item)
 		if slotIdx then
 			if not foundLencos[slotIdx] then
 				foundLencos[slotIdx] = {
@@ -377,7 +375,6 @@ local function buildSkinsByRarityOrder(rawSkins)
 		end
 	end
 
-	-- Insere as skins Lenço na raridade ÉPICO na ordem esperada (incluindo Lenço Fina)
 	if not buckets["ÉPICO"] then buckets["ÉPICO"] = {} end
 	for slotIdx, def in ipairs(REQUIRED_LENCOS) do
 		table.insert(buckets["ÉPICO"], foundLencos[slotIdx] or { id = def.id, name = def.name })
@@ -394,7 +391,6 @@ local function buildSkinsByRarityOrder(rawSkins)
 		end
 	end
 
-	-- Caso haja alguma raridade fora da lista padrão, anexa ao final sem duplicar
 	for rName, list in pairs(buckets) do
 		local inStandard = false
 		for _, stdR in ipairs(RARITIES) do
@@ -416,21 +412,20 @@ end
 local skinList  = buildSkinsByRarityOrder(catalog.skins)
 local colorList = deduplicateById(catalog.colors or { { id = "COLOR12", name = "Amarelo", value = Color3.fromRGB(250, 204, 21) } })
 local trailList = deduplicateById(buildListFromItems(trailCatalog, {
-	{ id = "Fumaca", name = "FUMAÇA", fx = "Fumaca" },
-	{ id = "Agua", name = "PEGADAS D'ÁGUA", fx = "Agua" },
+	{ id = "Fumaca", name = "FUMACA", fx = "Fumaca" },
+	{ id = "Agua", name = "PEGADAS D'AGUA", fx = "Agua" },
 	{ id = "AreiaDourada", name = "AREIA DOURADA", fx = "AreiaDourada" },
 }))
 local punchList = deduplicateById(buildListFromItems(punchCatalog, {
-	{ id = "Padrao", name = "SOCO PADRÃO", fx = "Padrao" },
-	{ id = "Agua", name = "SOCO D'ÁGUA", fx = "Agua" },
+	{ id = "Padrao", name = "SOCO PADRAO", fx = "Padrao" },
+	{ id = "Agua", name = "SOCO D'AGUA", fx = "Agua" },
 }))
 
--- Pool do SKINS RGB seguindo a ordem de raridade (priorizando Lenço)
 local rgbSkinPool = {}
 do
 	local seen = {}
 	for _, item in ipairs(skinList) do
-		if matchLençoSlot(item) and not seen[item.id] then
+		if matchLencoSlot(item) and not seen[item.id] then
 			seen[item.id] = true
 			rgbSkinPool[#rgbSkinPool + 1] = item
 		end
@@ -1000,7 +995,7 @@ saveCfgBox.Size = UDim2.new(1, 0, 0, 38); saveCfgBox.LayoutOrder = 3
 saveCfgBox.BackgroundColor3 = T.card; saveCfgBox.BorderSizePixel = 0; saveCfgBox.Parent = miscFrame
 corner(saveCfgBox, 8); stroke(saveCfgBox, Color3.fromRGB(60, 65, 100), 1)
 
-textLabel(saveCfgBox, UDim2.new(1, -86, 1, 0), UDim2.new(0, 10, 0, 0), "SALVAR CONFIGURAÇÃO", Enum.Font.GothamBlack, 9, T.text)
+textLabel(saveCfgBox, UDim2.new(1, -86, 1, 0), UDim2.new(0, 10, 0, 0), "SALVAR CONFIGURACAO", Enum.Font.GothamBlack, 9, T.text)
 
 local saveCfgBtn = Instance.new("TextButton")
 saveCfgBtn.Size = UDim2.new(0, 64, 0, 22); saveCfgBtn.Position = UDim2.new(1, -72, 0.5, -11)
