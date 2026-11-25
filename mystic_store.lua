@@ -362,6 +362,7 @@ local function saveConfigToFile()
 		trailId = tostring(state.trailId ~= "" and state.trailId or "Fumaca"),
 		punchId = tostring(state.punchId ~= "" and state.punchId or "Padrao"),
 		hideNames = state.hideNames and true or false,
+		autoExec = state.autoExec and true or false,
 	}
 	cachedSessionCfg = cfg
 	if type(writefile) == "function" then
@@ -371,6 +372,7 @@ local function saveConfigToFile()
 			cfg.trailId,
 			cfg.punchId,
 			cfg.hideNames and "1" or "0",
+			cfg.autoExec and "1" or "0",
 		}, "|"))
 	end
 	return cfg
@@ -390,6 +392,7 @@ local function loadSavedConfig()
 						trailId = parts[3],
 						punchId = parts[4],
 						hideNames = (parts[5] == "1"),
+						autoExec = (parts[6] == "1"),
 					}
 				end
 			end
@@ -600,7 +603,7 @@ local function applySkinOnly(skinId)
 end
 
 -- ══ UI ══
-local oldGui = pcall(function()
+pcall(function()
 	local g = CG:FindFirstChild("MysticStorePanelV3")
 	if g then g:Destroy() end
 end)
@@ -1078,6 +1081,7 @@ end
 autoExecToggle.MouseButton1Click:Connect(function()
 	state.autoExec = not state.autoExec
 	syncAutoExecVisual()
+	saveConfigToFile()
 	if state.autoExec then
 		queueTeleportActions(true)
 	else
@@ -1141,16 +1145,18 @@ task.spawn(function()
 			if type(savedCfg.trailId) == "string" and savedCfg.trailId ~= "" then state.trailId = savedCfg.trailId end
 			if type(savedCfg.punchId) == "string" and savedCfg.punchId ~= "" then state.punchId = savedCfg.punchId end
 			if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
+			if type(savedCfg.autoExec) == "boolean" then state.autoExec = savedCfg.autoExec end
 			safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
 			safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
 			safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
+			syncAutoExecVisual()
 			applyCosmetics(lp.Character)
 			updatePreview()
 		end
 	end)
 
-	-- Reenfileira o Auto Execute após o carregamento para a próxima troca de servidor
-	task.wait(2)
+	-- Garante que o Auto Execute fique enfileirado automaticamente assim que o script abrir
+	task.wait(1.5)
 	pcall(function()
 		if state.autoExec then
 			syncAutoExecVisual()
