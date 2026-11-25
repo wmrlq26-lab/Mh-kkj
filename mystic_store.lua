@@ -329,7 +329,91 @@ local function deduplicateById(list)
 	return out
 end
 
-local skinList  = deduplicateById(catalog.skins  or { { id = "BonecoNoob",  name = "NOOB" } })
+-- Garante que todas as skins Lenço (incluindo Lenço Fina) estejam na raridade ÉPICO na ordem
+local REQUIRED_LENCOS = {
+	{ id = "BonecoLencoBranco",   name = "LENÇO BRANCA",   matchKeys = { "lenco branco", "bonecolencobranco", "lencobranco" } },
+	{ id = "BonecoLencoVermelho", name = "LENÇO VERMELHA", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
+	{ id = "BonecoLencoPreto",    name = "LENÇO PRETA",    matchKeys = { "lenco preto", "lenco preta", "bonecolencopreto", "lencopreto" } },
+	{ id = "BonecoLencoFina",     name = "LENÇO FINA",     matchKeys = { "lenco fina", "bonecolencofina", "lencofina", "fina" } },
+}
+
+local function matchLençoSlot(item)
+	if not item then return nil end
+	local c = normalizeText(item.name) .. " " .. normalizeText(item.id)
+	local compact = c:gsub("%s+", "")
+	for slotIdx, slot in ipairs(REQUIRED_LENCOS) do
+		for _, k in ipairs(slot.matchKeys) do
+			local kCompact = normalizeText(k):gsub("%s+", "")
+			if string.find(c, k, 1, true) or string.find(compact, kCompact, 1, true) then
+				return slotIdx
+			end
+		end
+	end
+	return nil
+end
+
+-- Ordena todas as skins por raridade: COMUM -> RARO -> ÉPICO -> LENDÁRIO -> MÍTICO -> 13TH FRIDAY -> BETA -> SUMMER 1 -> SUMMER 2
+local function buildSkinsByRarityOrder(rawSkins)
+	local deduped = deduplicateById(rawSkins or { { id = "BonecoNoob", name = "NOOB" } })
+	local buckets = {}
+	for _, rName in ipairs(RARITIES) do
+		buckets[rName] = {}
+	end
+
+	local foundLencos = {}
+	for _, item in ipairs(deduped) do
+		local slotIdx = matchLençoSlot(item)
+		if slotIdx then
+			if not foundLencos[slotIdx] then
+				foundLencos[slotIdx] = {
+					id = tostring(item.id),
+					name = tostring(item.name or REQUIRED_LENCOS[slotIdx].name),
+				}
+			end
+		else
+			local rName = getRarityForSkin(item) or "ÉPICO"
+			if not buckets[rName] then buckets[rName] = {} end
+			table.insert(buckets[rName], item)
+		end
+	end
+
+	-- Insere as skins Lenço na raridade ÉPICO na ordem esperada (incluindo Lenço Fina)
+	if not buckets["ÉPICO"] then buckets["ÉPICO"] = {} end
+	for slotIdx, def in ipairs(REQUIRED_LENCOS) do
+		table.insert(buckets["ÉPICO"], foundLencos[slotIdx] or { id = def.id, name = def.name })
+	end
+
+	local orderedOut = {}
+	local seenIds = {}
+	for _, rName in ipairs(RARITIES) do
+		for _, item in ipairs(buckets[rName] or {}) do
+			if item.id and not seenIds[item.id] then
+				seenIds[item.id] = true
+				table.insert(orderedOut, item)
+			end
+		end
+	end
+
+	-- Caso haja alguma raridade fora da lista padrão, anexa ao final sem duplicar
+	for rName, list in pairs(buckets) do
+		local inStandard = false
+		for _, stdR in ipairs(RARITIES) do
+			if stdR == rName then inStandard = true break end
+		end
+		if not inStandard then
+			for _, item in ipairs(list) do
+				if item.id and not seenIds[item.id] then
+					seenIds[item.id] = true
+					table.insert(orderedOut, item)
+				end
+			end
+		end
+	end
+
+	return orderedOut
+end
+
+local skinList  = buildSkinsByRarityOrder(catalog.skins)
 local colorList = deduplicateById(catalog.colors or { { id = "COLOR12", name = "Amarelo", value = Color3.fromRGB(250, 204, 21) } })
 local trailList = deduplicateById(buildListFromItems(trailCatalog, {
 	{ id = "Fumaca", name = "FUMAÇA", fx = "Fumaca" },
@@ -341,36 +425,14 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'ÁGUA", fx = "Agua" },
 }))
 
--- Garante que as variantes de Lenço estejam presentes na lista de skins para o RGB
-local LENCO_VARIANTS = {
-	{ id = "BonecoLencoBranco", name = "LENÇO BRANCO" },
-	{ id = "BonecoLencoVermelho", name = "LENÇO VERMELHO" },
-	{ id = "BonecoLencoPreto", name = "LENÇO PRETO" },
-	{ id = "BonecoLencoFina", name = "LENÇO FINA" },
-}
-
-local function isLencoItem(item)
-	if not item then return false end
-	local idNorm = normalizeText(item.id):gsub("%s+", "")
-	local nameNorm = normalizeText(item.name):gsub("%s+", "")
-	return string.find(idNorm, "lenco", 1, true) ~= nil
-		or string.find(nameNorm, "lenco", 1, true) ~= nil
-		or idNorm == "vermelho" or idNorm == "fina"
-end
-
+-- Pool do SKINS RGB seguindo a ordem de raridade (priorizando Lenço)
 local rgbSkinPool = {}
 do
 	local seen = {}
 	for _, item in ipairs(skinList) do
-		if isLencoItem(item) and not seen[item.id] then
+		if matchLençoSlot(item) and not seen[item.id] then
 			seen[item.id] = true
 			rgbSkinPool[#rgbSkinPool + 1] = item
-		end
-	end
-	for _, fallbackLenco in ipairs(LENCO_VARIANTS) do
-		if not seen[fallbackLenco.id] then
-			seen[fallbackLenco.id] = true
-			rgbSkinPool[#rgbSkinPool + 1] = fallbackLenco
 		end
 	end
 	for _, item in ipairs(skinList) do
@@ -637,7 +699,6 @@ local function applyCosmetics(charOverride)
 	end)
 end
 
--- Aplica a skin de forma leve no loop RGB (inclui suporte às variantes Lenço)
 local function applyRgbSkinFast(skinId, char)
 	if type(skinId) ~= "string" or skinId == "" then return end
 	state.skinId = skinId
@@ -759,7 +820,6 @@ local function applyMinimizeState(minimized, persist)
 	end
 end
 
--- Arraste manual leve e sem salvar a cada frame
 local dragging = false
 local dragInput = nil
 local dragStartPos = Vector2.zero
@@ -1079,7 +1139,6 @@ local function startSkinsRgbLoop()
 					end
 				end
 				idx += 1
-				-- Intervalo otimizado para manter FPS estável e dar tempo para Lenços renderizarem
 				task.wait(1.05)
 			else
 				task.wait(1.0)
