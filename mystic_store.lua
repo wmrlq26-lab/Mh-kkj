@@ -5,12 +5,8 @@ local CG = game:GetService("CoreGui")
 
 local lp = Players.LocalPlayer
 
--- URLs raw para Auto Execute (GitHub Raw como prioridade + fallback Pastebin e cache local)
-local AUTO_EXEC_URLS = {
-	"https://raw.githubusercontent.com/wmrlq26-lab/Mh-kkj/refs/heads/main/mystic_store.lua",
-	"https://pastebin.com/raw/dQEhdYNr",
-}
-local AUTOEXEC_LOCAL_FILE = "mystic_store_autoexec.lua"
+-- URL raw do GitHub usada diretamente no Auto Execute via queue_on_teleport
+local AUTO_EXEC_URL = "https://raw.githubusercontent.com/wmrlq26-lab/Mh-kkj/refs/heads/main/mystic_store.lua"
 local CONFIG_FILE = "mystic_store_config.txt"
 
 local factory = RS:WaitForChild("StumbleOriginal056Factory", 15)
@@ -358,7 +354,6 @@ local function escapeLuaStr(val)
 end
 
 local cachedSessionCfg = nil
-local cachedAutoExecCode = nil
 
 local function saveConfigToFile()
 	local cfg = {
@@ -443,132 +438,16 @@ local function getQueueTeleportFn()
 	return getEnvFn({ "queue_on_teleport", "queueteleport", "queueonteleport" })
 end
 
-local function normalizeRawUrl(url)
-	if type(url) ~= "string" or url == "" then return "" end
-	local pasteId = url:match("pastebin%.com/([%w]+)$")
-	if pasteId and pasteId ~= "raw" then
-		return "https://pastebin.com/raw/" .. pasteId
-	end
-	return url
-end
-
-local function getNormalizedUrlsList()
-	local out = {}
-	for _, u in ipairs(AUTO_EXEC_URLS or {}) do
-		local norm = normalizeRawUrl(u)
-		if norm ~= "" then
-			out[#out + 1] = norm
-		end
-	end
-	return out
-end
-
-local function isValidLuaBody(src)
-	if type(src) ~= "string" or src == "" then return false end
-	if src:find("<!DOCTYPE html", 1, true) or src:find("<html", 1, true) then return false end
-	return true
-end
-
-local function fetchRemoteScriptFromList(urls)
-	local reqFn = getEnvFn({ "http_request", "request" })
-	for _, target in ipairs(urls or {}) do
-		if type(reqFn) == "function" then
-			local okReq, res = pcall(reqFn, {
-				Url = target,
-				Method = "GET",
-				Headers = {
-					["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-					["Accept"] = "*/*",
-				},
-			})
-			if okReq and type(res) == "table" and isValidLuaBody(res.Body) then
-				return res.Body
-			end
-		end
-
-		local okHttp, body = pcall(function()
-			return game:HttpGet(target, true)
-		end)
-		if not okHttp or not isValidLuaBody(body) then
-			okHttp, body = pcall(function()
-				return game:HttpGet(target)
-			end)
-		end
-		if okHttp and isValidLuaBody(body) then
-			return body
-		end
-	end
-	return nil
-end
-
-local function prepareAutoExecCache()
-	local remoteCode = fetchRemoteScriptFromList(getNormalizedUrlsList())
-	if type(remoteCode) == "string" and remoteCode ~= "" then
-		cachedAutoExecCode = remoteCode
-		if type(writefile) == "function" then
-			pcall(writefile, AUTOEXEC_LOCAL_FILE, remoteCode)
-		end
-		return true
-	end
-	if type(isfile) == "function" and type(readfile) == "function" then
-		local okEx, ex = pcall(isfile, AUTOEXEC_LOCAL_FILE)
-		if okEx and ex then
-			local okRd, localSrc = pcall(readfile, AUTOEXEC_LOCAL_FILE)
-			if okRd and isValidLuaBody(localSrc) then
-				cachedAutoExecCode = localSrc
-				return true
-			end
-		end
-	end
-	return false
-end
-
 local function buildAutoExecPayload()
-	local urls = getNormalizedUrlsList()
-	local quotedUrls = {}
-	for _, u in ipairs(urls) do
-		quotedUrls[#quotedUrls + 1] = escapeLuaStr(u)
-	end
-
-	local embeddedBlock = ""
-	if type(cachedAutoExecCode) == "string" and #cachedAutoExecCode > 0 and #cachedAutoExecCode < 180000 then
-		embeddedBlock = "  if not executed then executed = runSrc(" .. escapeLuaStr(cachedAutoExecCode) .. ") end\n"
-	end
-
+	local qUrl = escapeLuaStr(AUTO_EXEC_URL)
 	return table.concat({
 		"if not game:IsLoaded() then game.Loaded:Wait() end",
-		"task.wait(0.8)",
-		"local function runSrc(src)",
-		"  if type(src) ~= 'string' or src == '' then return false end",
-		"  if src:find('<!DOCTYPE html', 1, true) or src:find('<html', 1, true) then return false end",
-		"  local fn, loadErr = loadstring(src)",
-		"  if type(fn) == 'function' then task.spawn(pcall, fn); return true end",
-		"  return false",
-		"end",
-		"local executed = false",
-		"if type(isfile) == 'function' and type(readfile) == 'function' then",
-		"  local okEx, ex = pcall(isfile, " .. escapeLuaStr(AUTOEXEC_LOCAL_FILE) .. ")",
-		"  if okEx and ex then",
-		"    local okRd, localSrc = pcall(readfile, " .. escapeLuaStr(AUTOEXEC_LOCAL_FILE) .. ")",
-		"    if okRd and runSrc(localSrc) then executed = true end",
-		"  end",
-		"end",
-		"local candidateUrls = { " .. table.concat(quotedUrls, ", ") .. " }",
-		"if not executed and #candidateUrls > 0 then",
-		"  for _, target in ipairs(candidateUrls) do",
-		"    local okHttp, src = pcall(function() return game:HttpGet(target, true) end)",
-		"    if not okHttp or type(src) ~= 'string' or src == '' then",
-		"      okHttp, src = pcall(function() return game:HttpGet(target) end)",
-		"    end",
-		"    if okHttp and runSrc(src) then",
-		"      executed = true",
-		"      if type(writefile) == 'function' then pcall(writefile, " .. escapeLuaStr(AUTOEXEC_LOCAL_FILE) .. ", src) end",
-		"      break",
-		"    end",
-		"  end",
-		"end",
-		embeddedBlock .. "if not executed then",
-		"  warn('[MYSTIC STORE] Auto Execute nao carregou o codigo remoto no momento.')",
+		"task.wait(1)",
+		"local ok, err = pcall(function()",
+		"  loadstring(game:HttpGet(" .. qUrl .. ", true))()",
+		"end)",
+		"if not ok then",
+		"  warn('[MYSTIC STORE] Auto Execute falhou: ' .. tostring(err))",
 		"end",
 	}, "\n")
 end
@@ -1173,10 +1052,6 @@ autoExecToggle.MouseButton1Click:Connect(function()
 	autoExecToggle.BackgroundColor3 = state.autoExec and T.accentD or T.btn
 	if state.autoExec then
 		queueTeleportActions(true)
-		task.spawn(function()
-			prepareAutoExecCache()
-			queueTeleportActions(true)
-		end)
 	else
 		lastQueuedSignature = nil
 	end
@@ -1188,12 +1063,6 @@ end)
 
 saveCfgBtn.MouseButton1Click:Connect(function()
 	saveConfigToFile()
-	if state.autoExec then
-		task.spawn(function()
-			prepareAutoExecCache()
-			queueTeleportActions(true)
-		end)
-	end
 	queueTeleportActions(true)
 	saveCfgBtn.Text = "SALVO"
 	saveCfgBtn.BackgroundColor3 = T.accentD
