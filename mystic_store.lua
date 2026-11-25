@@ -442,13 +442,15 @@ local function buildAutoExecPayload()
 	local qUrl = escapeLuaStr(AUTO_EXEC_URL)
 	return table.concat({
 		"if not game:IsLoaded() then game.Loaded:Wait() end",
-		"task.wait(1)",
-		"local ok, err = pcall(function()",
-		"  loadstring(game:HttpGet(" .. qUrl .. ", true))()",
+		"task.wait(2.2)",
+		"task.spawn(function()",
+		"  local ok, err = pcall(function()",
+		"    loadstring(game:HttpGet(" .. qUrl .. ", true))()",
+		"  end)",
+		"  if not ok then",
+		"    warn('[MYSTIC STORE] Auto Execute falhou: ' .. tostring(err))",
+		"  end",
 		"end)",
-		"if not ok then",
-		"  warn('[MYSTIC STORE] Auto Execute falhou: ' .. tostring(err))",
-		"end",
 	}, "\n")
 end
 
@@ -803,52 +805,78 @@ local function getThumbData(tabId, item)
 	return "", false, nil
 end
 
+local function canTouchUi()
+	return gui ~= nil
+		and gui.Parent ~= nil
+		and main ~= nil
+		and main.Parent ~= nil
+		and body ~= nil
+		and body.Parent ~= nil
+		and not state.minimized
+		and state.tab ~= "misc"
+end
+
+local function safeSetProp(inst, propName, value)
+	if not inst or not inst.Parent then return end
+	pcall(function()
+		inst[propName] = value
+	end)
+end
+
 local function updatePreview()
-	if state.tab == "misc" or state.minimized or not gui or not gui.Parent then
+	if not canTouchUi() then
 		return
 	end
 	task.defer(function()
-		if state.tab == "misc" or state.minimized or not gui or not gui.Parent then
+		if not canTouchUi() then
 			return
 		end
-		pcall(function()
-			local list = getListForTab(state.tab)
-			local idKey = getSelectedIdKey(state.tab)
-			local item = findItemById(list, state[idKey])
-			if not item then return end
-
-			local img, isSwatch, swatchColor = getThumbData(state.tab, item)
-			if isSwatch then
-				if previewImg and previewImg.Parent then previewImg.Visible = false end
-				if previewSwatch and previewSwatch.Parent then
-					previewSwatch.Visible = true
-					previewSwatch.BackgroundColor3 = swatchColor or Color3.fromRGB(178, 114, 68)
-				end
-			else
-				if previewSwatch and previewSwatch.Parent then previewSwatch.Visible = false end
-				if previewImg and previewImg.Parent then
-					previewImg.Visible = true
-					previewImg.Image = img
-					previewImg.ScaleType = Enum.ScaleType.Fit
-				end
-			end
-
-			if previewName and previewName.Parent then
-				previewName.Text = (state.tab == "color") and formatColorDisplayName(item) or tostring(item.name or item.id or "")
-			end
-			if previewRarityLbl and previewRarityLbl.Parent then
-				previewRarityLbl.Text = (state.tab == "skin") and tostring(getRarityForSkin(item) or "") or string.upper(tostring(state.tab or ""))
-			end
-
-			for _, entry in ipairs(gridCards) do
-				if entry.card and entry.card.Parent then
-					local sel = (entry.itemId == item.id)
-					entry.card.BackgroundColor3 = sel and T.cardSel or T.card
-					local s = entry.card:FindFirstChildOfClass("UIStroke")
-					if s then s.Enabled = sel end
-				end
-			end
+		local list, idKey, item
+		local okData = pcall(function()
+			list = getListForTab(state.tab)
+			idKey = getSelectedIdKey(state.tab)
+			item = findItemById(list, state[idKey])
 		end)
+		if not okData or not item then return end
+
+		local img, isSwatch, swatchColor = "", false, Color3.fromRGB(178, 114, 68)
+		pcall(function()
+			img, isSwatch, swatchColor = getThumbData(state.tab, item)
+		end)
+
+		if isSwatch then
+			safeSetProp(previewImg, "Visible", false)
+			safeSetProp(previewSwatch, "Visible", true)
+			safeSetProp(previewSwatch, "BackgroundColor3", swatchColor or Color3.fromRGB(178, 114, 68))
+		else
+			safeSetProp(previewSwatch, "Visible", false)
+			safeSetProp(previewImg, "Visible", true)
+			safeSetProp(previewImg, "Image", img)
+			safeSetProp(previewImg, "ScaleType", Enum.ScaleType.Fit)
+		end
+
+		local displayText = ""
+		local rarityText = ""
+		pcall(function()
+			displayText = (state.tab == "color") and formatColorDisplayName(item) or tostring(item.name or item.id or "")
+			rarityText = (state.tab == "skin") and tostring(getRarityForSkin(item) or "") or string.upper(tostring(state.tab or ""))
+		end)
+
+		safeSetProp(previewName, "Text", displayText)
+		safeSetProp(previewRarityLbl, "Text", rarityText)
+
+		for _, entry in ipairs(gridCards) do
+			if entry and entry.card and entry.card.Parent then
+				local sel = (entry.itemId == item.id)
+				safeSetProp(entry.card, "BackgroundColor3", sel and T.cardSel or T.card)
+				pcall(function()
+					local s = entry.card:FindFirstChildOfClass("UIStroke")
+					if s then
+						s.Enabled = sel
+					end
+				end)
+			end
+		end
 	end)
 end
 
@@ -861,8 +889,8 @@ local function refreshRarityButtons()
 			for _, rb in ipairs(rarityBtns) do
 				if rb.btn and rb.btn.Parent then
 					local isSel = (rb.rarity == selectedRarity)
-					rb.btn.BackgroundColor3 = isSel and T.accent or T.card
-					rb.btn.TextColor3 = isSel and T.text or T.muted
+					safeSetProp(rb.btn, "BackgroundColor3", isSel and T.accent or T.card)
+					safeSetProp(rb.btn, "TextColor3", isSel and T.text or T.muted)
 				end
 			end
 		end)
@@ -873,11 +901,9 @@ local function setSkinsRgbVisual(enabled)
 	if not skinsRgbToggle or not skinsRgbToggle.Parent then return end
 	task.defer(function()
 		if not skinsRgbToggle or not skinsRgbToggle.Parent then return end
-		pcall(function()
-			skinsRgbToggle.Text = enabled and "ON" or "OFF"
-			skinsRgbToggle.TextColor3 = enabled and T.text or T.muted
-			skinsRgbToggle.BackgroundColor3 = enabled and T.accentD or T.btn
-		end)
+		safeSetProp(skinsRgbToggle, "Text", enabled and "ON" or "OFF")
+		safeSetProp(skinsRgbToggle, "TextColor3", enabled and T.text or T.muted)
+		safeSetProp(skinsRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
 	end)
 end
 
@@ -944,14 +970,14 @@ local function buildGrid(tabId)
 
 			local isSkinTab = (tabId == "skin")
 			local isMiscTab = (tabId == "misc")
-			rarityBar.Visible = isSkinTab
-			miscFrame.Visible = isMiscTab
-			previewFrame.Visible = not isMiscTab
-			gridClip.Visible = not isMiscTab
+			safeSetProp(rarityBar, "Visible", isSkinTab)
+			safeSetProp(miscFrame, "Visible", isMiscTab)
+			safeSetProp(previewFrame, "Visible", not isMiscTab)
+			safeSetProp(gridClip, "Visible", not isMiscTab)
 			if isMiscTab then return end
 
-			gridClip.Position = isSkinTab and UDim2.new(0, 0, 0, 52) or UDim2.new(0, 0, 0, 28)
-			gridClip.Size = isSkinTab and UDim2.new(1, -92, 1, -52) or UDim2.new(1, -92, 1, -28)
+			safeSetProp(gridClip, "Position", isSkinTab and UDim2.new(0, 0, 0, 52) or UDim2.new(0, 0, 0, 28))
+			safeSetProp(gridClip, "Size", isSkinTab and UDim2.new(1, -92, 1, -52) or UDim2.new(1, -92, 1, -28))
 
 			local list = getListForTab(tabId)
 			local idKey = getSelectedIdKey(tabId)
@@ -1027,8 +1053,8 @@ local function switchTab(tabId)
 		pcall(function()
 			for _, tb in ipairs(tabBtns) do
 				if tb.btn and tb.btn.Parent then
-					tb.btn.BackgroundColor3 = (tb.id == tabId) and T.tabSel or T.tabBg
-					tb.btn.TextColor3 = (tb.id == tabId) and T.text or T.muted
+					safeSetProp(tb.btn, "BackgroundColor3", (tb.id == tabId) and T.tabSel or T.tabBg)
+					safeSetProp(tb.btn, "TextColor3", (tb.id == tabId) and T.text or T.muted)
 				end
 			end
 		end)
@@ -1045,11 +1071,15 @@ for _, def in ipairs(TABS) do
 	tb.MouseButton1Click:Connect(function() switchTab(def.id) end)
 end
 
+local function syncAutoExecVisual()
+	safeSetProp(autoExecToggle, "Text", state.autoExec and "ON" or "OFF")
+	safeSetProp(autoExecToggle, "TextColor3", state.autoExec and T.text or T.muted)
+	safeSetProp(autoExecToggle, "BackgroundColor3", state.autoExec and T.accentD or T.btn)
+end
+
 autoExecToggle.MouseButton1Click:Connect(function()
 	state.autoExec = not state.autoExec
-	autoExecToggle.Text = state.autoExec and "ON" or "OFF"
-	autoExecToggle.TextColor3 = state.autoExec and T.text or T.muted
-	autoExecToggle.BackgroundColor3 = state.autoExec and T.accentD or T.btn
+	syncAutoExecVisual()
 	if state.autoExec then
 		queueTeleportActions(true)
 	else
@@ -1064,28 +1094,32 @@ end)
 saveCfgBtn.MouseButton1Click:Connect(function()
 	saveConfigToFile()
 	queueTeleportActions(true)
-	saveCfgBtn.Text = "SALVO"
-	saveCfgBtn.BackgroundColor3 = T.accentD
+	safeSetProp(saveCfgBtn, "Text", "SALVO")
+	safeSetProp(saveCfgBtn, "BackgroundColor3", T.accentD)
 	task.delay(1.2, function()
 		if saveCfgBtn and saveCfgBtn.Parent then
-			saveCfgBtn.Text = "SALVAR"
-			saveCfgBtn.BackgroundColor3 = T.accent
+			safeSetProp(saveCfgBtn, "Text", "SALVAR")
+			safeSetProp(saveCfgBtn, "BackgroundColor3", T.accent)
 		end
 	end)
 end)
 
 hideToggle.MouseButton1Click:Connect(function()
 	state.hideNames = not state.hideNames
-	hideToggle.Text = state.hideNames and "ON" or "OFF"
-	hideToggle.TextColor3 = state.hideNames and T.text or T.muted
-	hideToggle.BackgroundColor3 = state.hideNames and T.accentD or T.btn
+	safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
+	safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
+	safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
 	pcall(lp.SetAttribute, lp, "SGHideAllNames", state.hideNames)
 end)
 
 minBtn.MouseButton1Click:Connect(function()
-	state.minimized = not state.minimized; body.Visible = not state.minimized
-	main.Size = state.minimized and UDim2.new(0, PANEL_W, 0, 30) or UDim2.new(0, PANEL_W, 0, PANEL_H)
-	minBtn.Text = state.minimized and "+" or "-"
+	state.minimized = not state.minimized
+	safeSetProp(body, "Visible", not state.minimized)
+	safeSetProp(main, "Size", state.minimized and UDim2.new(0, PANEL_W, 0, 30) or UDim2.new(0, PANEL_W, 0, PANEL_H))
+	safeSetProp(minBtn, "Text", state.minimized and "+" or "-")
+	if not state.minimized then
+		updatePreview()
+	end
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -1109,9 +1143,19 @@ if type(savedCfg) == "table" then
 	if type(savedCfg.trailId) == "string" and savedCfg.trailId ~= "" then state.trailId = savedCfg.trailId end
 	if type(savedCfg.punchId) == "string" and savedCfg.punchId ~= "" then state.punchId = savedCfg.punchId end
 	if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
-	hideToggle.Text = state.hideNames and "ON" or "OFF"
-	hideToggle.TextColor3 = state.hideNames and T.text or T.muted
-	hideToggle.BackgroundColor3 = state.hideNames and T.accentD or T.btn
+	safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
+	safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
+	safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
 	applyCosmetics(lp.Character)
 	updatePreview()
+end
+
+-- Se o Auto Execute já estava ativo na sessão anterior ou for reaberto via teleporte, mantém a próxima fila pronta
+if state.autoExec then
+	syncAutoExecVisual()
+	task.delay(1.5, function()
+		if state.autoExec and gui and gui.Parent then
+			queueTeleportActions(true)
+		end
+	end)
 end
