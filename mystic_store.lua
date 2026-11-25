@@ -1,8 +1,9 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Final Otimizado & Anti-Lag)
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Final Otimizado, Anti-Lag, Nick RGB & Spinbot)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local CG = game:GetService("CoreGui")
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local lp = Players.LocalPlayer
 
@@ -329,7 +330,6 @@ local function deduplicateById(list)
 	return out
 end
 
--- 1=Lenco Branca, 2=Lenco Vermelho, 3=Lenco Preto, 4=Lenco Fina
 local REQUIRED_LENCOS = {
 	{ id = "BonecoLencoBranco",   name = "LENCO BRANCA",   matchKeys = { "lenco branco", "bonecolencobranco", "lencobranco" } },
 	{ id = "BonecoLencoVermelho", name = "LENCO VERMELHO", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
@@ -352,8 +352,6 @@ local function matchLencoSlot(item)
 	return nil
 end
 
--- FIX 1: dedup lenco vermelho — qualquer item que bata num slot de lenço
--- já preenchido é descartado completamente, não cai no bucket genérico.
 local function buildSkinsByRarityOrder(rawSkins)
 	local deduped = deduplicateById(rawSkins or { { id = "BonecoNoob", name = "NOOB" } })
 	local buckets = {}
@@ -362,19 +360,16 @@ local function buildSkinsByRarityOrder(rawSkins)
 	end
 
 	local foundLencos = {}
-	local claimedByLenco = {} -- ids que foram absorvidos por um slot de lenço
-
 	for _, item in ipairs(deduped) do
 		local slotIdx = matchLencoSlot(item)
 		if slotIdx then
-			claimedByLenco[tostring(item.id)] = true
 			if not foundLencos[slotIdx] then
+				local stdName = REQUIRED_LENCOS[slotIdx].name
 				foundLencos[slotIdx] = {
 					id = tostring(item.id),
-					name = REQUIRED_LENCOS[slotIdx].name,
+					name = stdName,
 				}
 			end
-			-- segundo match do mesmo slot: descarta, não entra em bucket nenhum
 		else
 			local rName = getRarityForSkin(item) or "EPICO"
 			if not buckets[rName] then buckets[rName] = {} end
@@ -433,8 +428,6 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'AGUA", fx = "Agua" },
 }))
 
--- FIX 2: RGB pool inclui TODAS as skins da skinList (lenços inclusive),
--- sem filtro de raridade. Nada é pulado.
 local rgbSkinPool = {}
 do
 	local seen = {}
@@ -452,6 +445,7 @@ local state = {
 	trailId = trailList[1] and trailList[1].id or "Fumaca",
 	punchId = punchList[1] and punchList[1].id or "Padrao",
 	rarityIdx = 1, tab = "skin", hideNames = false, autoExec = false, skinsRgb = false, minimized = false,
+	nickRgb = false, spinBot = false, spinSpeed = 14,
 	posX = 4, posYScale = 0, posYOffset = 100,
 }
 
@@ -472,6 +466,9 @@ local function saveConfigToFile()
 		hideNames = state.hideNames and true or false,
 		autoExec = state.autoExec and true or false,
 		minimized = state.minimized and true or false,
+		nickRgb = state.nickRgb and true or false,
+		spinBot = state.spinBot and true or false,
+		spinSpeed = tonumber(state.spinSpeed) or 14,
 		posX = tonumber(state.posX) or 4,
 		posYScale = tonumber(state.posYScale) or 0,
 		posYOffset = tonumber(state.posYOffset) or 100,
@@ -489,6 +486,9 @@ local function saveConfigToFile()
 			tostring(cfg.posX),
 			tostring(cfg.posYScale),
 			tostring(cfg.posYOffset),
+			cfg.nickRgb and "1" or "0",
+			cfg.spinBot and "1" or "0",
+			tostring(cfg.spinSpeed),
 		}, "|"))
 	end
 	return cfg
@@ -513,6 +513,9 @@ local function loadSavedConfig()
 						posX = tonumber(parts[8]) or 4,
 						posYScale = tonumber(parts[9]) or 0,
 						posYOffset = tonumber(parts[10]) or 100,
+						nickRgb = (parts[11] == "1"),
+						spinBot = (parts[12] == "1"),
+						spinSpeed = tonumber(parts[13]) or 14,
 					}
 				end
 			end
@@ -722,14 +725,110 @@ local function applyRgbSkinFast(skinId, char)
 		pcall(function()
 			char:SetAttribute("CharacterVisual", skinId)
 		end)
-		-- FIX 3: lenços são skins sem mesh próprio, o Build demora mais para resolver.
-		-- Reduz o cooldown do Build para 0.4s e aumenta o delay geral do loop para
-		-- 2.5s por skin — tempo suficiente para qualquer skin carregar antes de trocar.
 		local now = os.clock()
-		if (now - lastRgbBuildClock) >= 0.4 and type(appearance) == "table" and type(appearance.Build) == "function" then
+		if (now - lastRgbBuildClock) >= 0.75 and type(appearance) == "table" and type(appearance.Build) == "function" then
 			lastRgbBuildClock = now
 			pcall(appearance.Build, char, { skin = skinId, color = colorId })
 		end
+	end
+end
+
+-- ══ NICK RGB & SPINBOT (VISUAL / LOCAL) ══
+local cachedNameLabels = {}
+local lastNameScanClock = 0
+
+local function refreshNameLabels(char)
+	table.clear(cachedNameLabels)
+	if not char or not char.Parent then return end
+	pcall(function()
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("TextLabel") and desc:FindFirstAncestorOfClass("BillboardGui") then
+				cachedNameLabels[#cachedNameLabels + 1] = desc
+			end
+		end
+	end)
+end
+
+local function applyNickRgbColor(char, col)
+	if not char or not char.Parent then return end
+	local now = os.clock()
+	if (now - lastNameScanClock) >= 1.5 or #cachedNameLabels == 0 then
+		lastNameScanClock = now
+		refreshNameLabels(char)
+	end
+
+	pcall(function()
+		for i = #cachedNameLabels, 1, -1 do
+			local lbl = cachedNameLabels[i]
+			if lbl and lbl.Parent then
+				lbl.TextColor3 = col
+			else
+				table.remove(cachedNameLabels, i)
+			end
+		end
+	end)
+end
+
+local function restoreHumanoidAutoRotate(char)
+	if not char then return end
+	pcall(function()
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and not hum.AutoRotate then
+			hum.AutoRotate = true
+		end
+	end)
+end
+
+local rgbHue = 0
+local worldStepAcc = 0
+local worldConn = nil
+
+local function startWorldEffectsLoop()
+	if worldConn then return end
+	worldConn = RunService.Heartbeat:Connect(function(dt)
+		if not state.nickRgb and not state.spinBot then
+			return
+		end
+		worldStepAcc += dt
+		if worldStepAcc < 0.03 then
+			return
+		end
+		local step = worldStepAcc
+		worldStepAcc = 0
+
+		local char = lp and lp.Character
+		if not char or not char.Parent then
+			return
+		end
+
+		if state.nickRgb then
+			rgbHue = (rgbHue + step * 0.45) % 1
+			applyNickRgbColor(char, Color3.fromHSV(rgbHue, 0.85, 1))
+		end
+
+		if state.spinBot then
+			pcall(function()
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				if hum and hrp and hum.Health > 0 then
+					if hum.AutoRotate then
+						hum.AutoRotate = false
+					end
+					local speed = tonumber(state.spinSpeed) or 14
+					hrp.CFrame = hrp.CFrame * CFrame.Angles(0, speed * step, 0)
+				end
+			end)
+		end
+	end)
+end
+
+local function stopWorldEffectsLoopIfIdle()
+	if not state.nickRgb and not state.spinBot then
+		if worldConn then
+			worldConn:Disconnect()
+			worldConn = nil
+		end
+		restoreHumanoidAutoRotate(lp and lp.Character)
 	end
 end
 
@@ -1009,9 +1108,28 @@ end
 
 local autoExecToggle = makeMiscToggleRow(1, "AUTO EXECUTE")
 local skinsRgbToggle = makeMiscToggleRow(2, "SKINS RGB")
+local nickRgbToggle  = makeMiscToggleRow(3, "NICK RGB")
+local spinBotToggle  = makeMiscToggleRow(4, "SPINBOT")
+
+local spinSpeedBox = Instance.new("Frame")
+spinSpeedBox.Size = UDim2.new(1, 0, 0, 38); spinSpeedBox.LayoutOrder = 5
+spinSpeedBox.BackgroundColor3 = T.card; spinSpeedBox.BorderSizePixel = 0; spinSpeedBox.Parent = miscFrame
+corner(spinSpeedBox, 8); stroke(spinSpeedBox, Color3.fromRGB(60, 65, 100), 1)
+
+local spinSpeedLbl = textLabel(spinSpeedBox, UDim2.new(1, -86, 1, 0), UDim2.new(0, 10, 0, 0), "VELOCIDADE SPIN: 14", Enum.Font.GothamBlack, 8, T.text)
+
+local spinMinusBtn = Instance.new("TextButton")
+spinMinusBtn.Size = UDim2.new(0, 24, 0, 22); spinMinusBtn.Position = UDim2.new(1, -60, 0.5, -11)
+spinMinusBtn.BackgroundColor3 = T.btn; spinMinusBtn.BorderSizePixel = 0; spinMinusBtn.Text = "-"
+spinMinusBtn.TextColor3 = T.text; spinMinusBtn.Font = Enum.Font.GothamBlack; spinMinusBtn.TextSize = 10; spinMinusBtn.Parent = spinSpeedBox; corner(spinMinusBtn, 6)
+
+local spinPlusBtn = Instance.new("TextButton")
+spinPlusBtn.Size = UDim2.new(0, 24, 0, 22); spinPlusBtn.Position = UDim2.new(1, -30, 0.5, -11)
+spinPlusBtn.BackgroundColor3 = T.accent; spinPlusBtn.BorderSizePixel = 0; spinPlusBtn.Text = "+"
+spinPlusBtn.TextColor3 = T.text; spinPlusBtn.Font = Enum.Font.GothamBlack; spinPlusBtn.TextSize = 10; spinPlusBtn.Parent = spinSpeedBox; corner(spinPlusBtn, 6)
 
 local saveCfgBox = Instance.new("Frame")
-saveCfgBox.Size = UDim2.new(1, 0, 0, 38); saveCfgBox.LayoutOrder = 3
+saveCfgBox.Size = UDim2.new(1, 0, 0, 38); saveCfgBox.LayoutOrder = 6
 saveCfgBox.BackgroundColor3 = T.card; saveCfgBox.BorderSizePixel = 0; saveCfgBox.Parent = miscFrame
 corner(saveCfgBox, 8); stroke(saveCfgBox, Color3.fromRGB(60, 65, 100), 1)
 
@@ -1022,7 +1140,7 @@ saveCfgBtn.Size = UDim2.new(0, 64, 0, 22); saveCfgBtn.Position = UDim2.new(1, -7
 saveCfgBtn.BackgroundColor3 = T.accent; saveCfgBtn.BorderSizePixel = 0; saveCfgBtn.Text = "SALVAR"
 saveCfgBtn.TextColor3 = T.text; saveCfgBtn.Font = Enum.Font.GothamBlack; saveCfgBtn.TextSize = 8; saveCfgBtn.Parent = saveCfgBox; corner(saveCfgBtn, 6)
 
-local hideToggle = makeMiscToggleRow(4, "NOMES")
+local hideToggle = makeMiscToggleRow(7, "NOMES")
 
 local gridCards, rarityBtns = {}, {}
 
@@ -1130,13 +1248,23 @@ local function setSkinsRgbVisual(enabled)
 	safeSetProp(skinsRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
 end
 
+local function setNickRgbVisual(enabled)
+	safeSetProp(nickRgbToggle, "Text", enabled and "ON" or "OFF")
+	safeSetProp(nickRgbToggle, "TextColor3", enabled and T.text or T.muted)
+	safeSetProp(nickRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
+end
+
+local function setSpinBotVisual(enabled)
+	safeSetProp(spinBotToggle, "Text", enabled and "ON" or "OFF")
+	safeSetProp(spinBotToggle, "TextColor3", enabled and T.text or T.muted)
+	safeSetProp(spinBotToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
+end
+
+local function syncSpinSpeedLabel()
+	safeSetProp(spinSpeedLbl, "Text", "VELOCIDADE SPIN: " .. tostring(math.floor((tonumber(state.spinSpeed) or 14) + 0.5)))
+end
+
 local rgbLoopGen = 0
-
--- FIX 3: delay por skin aumentado para 2.5s — tempo suficiente para o Build
--- resolver qualquer skin, incluindo lenços que dependem de assets externos.
--- Build cooldown reduzido para 0.4s para não engolir trocas rápidas.
-local RGB_SKIN_DELAY = 2.5
-
 local function startSkinsRgbLoop()
 	rgbLoopGen += 1
 	local currentGen = rgbLoopGen
@@ -1167,11 +1295,11 @@ local function startSkinsRgbLoop()
 				end
 				idx += 1
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(RGB_SKIN_DELAY)
+					task.wait(1.15)
 				end
 			else
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(RGB_SKIN_DELAY)
+					task.wait(1.15)
 				end
 			end
 		end
@@ -1185,6 +1313,28 @@ local function setSkinsRgbEnabled(enabled)
 	setSkinsRgbVisual(nextVal)
 	if nextVal then
 		startSkinsRgbLoop()
+	end
+end
+
+local function setNickRgbEnabled(enabled)
+	state.nickRgb = enabled and true or false
+	setNickRgbVisual(state.nickRgb)
+	lastNameScanClock = 0
+	if state.nickRgb then
+		refreshNameLabels(lp and lp.Character)
+		startWorldEffectsLoop()
+	else
+		stopWorldEffectsLoopIfIdle()
+	end
+end
+
+local function setSpinBotEnabled(enabled)
+	state.spinBot = enabled and true or false
+	setSpinBotVisual(state.spinBot)
+	if state.spinBot then
+		startWorldEffectsLoop()
+	else
+		stopWorldEffectsLoopIfIdle()
 	end
 end
 
@@ -1319,6 +1469,24 @@ skinsRgbToggle.MouseButton1Click:Connect(function()
 	setSkinsRgbEnabled(not state.skinsRgb)
 end)
 
+nickRgbToggle.MouseButton1Click:Connect(function()
+	setNickRgbEnabled(not state.nickRgb)
+end)
+
+spinBotToggle.MouseButton1Click:Connect(function()
+	setSpinBotEnabled(not state.spinBot)
+end)
+
+spinMinusBtn.MouseButton1Click:Connect(function()
+	state.spinSpeed = math.max(4, (tonumber(state.spinSpeed) or 14) - 4)
+	syncSpinSpeedLabel()
+end)
+
+spinPlusBtn.MouseButton1Click:Connect(function()
+	state.spinSpeed = math.min(40, (tonumber(state.spinSpeed) or 14) + 4)
+	syncSpinSpeedLabel()
+end)
+
 saveCfgBtn.MouseButton1Click:Connect(function()
 	saveConfigToFile()
 	queueTeleportActions(true)
@@ -1344,18 +1512,27 @@ end)
 
 closeBtn.MouseButton1Click:Connect(function()
 	setSkinsRgbEnabled(false)
+	state.nickRgb = false
+	state.spinBot = false
+	stopWorldEffectsLoopIfIdle()
 	pcall(function() gui:Destroy() end)
 end)
 
 lp.CharacterAdded:Connect(function(char)
+	lastNameScanClock = 0
+	table.clear(cachedNameLabels)
 	task.wait(0.8)
 	applyCosmetics(char)
+	if state.nickRgb then
+		refreshNameLabels(char)
+	end
 end)
 
 task.spawn(function()
 	pcall(function()
 		refreshRarityButtons()
 		switchTab("skin")
+		syncSpinSpeedLabel()
 
 		local savedCfg = loadSavedConfig()
 		if type(savedCfg) == "table" then
@@ -1366,6 +1543,9 @@ task.spawn(function()
 			if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
 			if type(savedCfg.autoExec) == "boolean" then state.autoExec = savedCfg.autoExec end
 			if type(savedCfg.minimized) == "boolean" then state.minimized = savedCfg.minimized end
+			if type(savedCfg.nickRgb) == "boolean" then state.nickRgb = savedCfg.nickRgb end
+			if type(savedCfg.spinBot) == "boolean" then state.spinBot = savedCfg.spinBot end
+			state.spinSpeed = tonumber(savedCfg.spinSpeed) or 14
 			state.posX = tonumber(savedCfg.posX) or 4
 			state.posYScale = tonumber(savedCfg.posYScale) or 0
 			state.posYOffset = tonumber(savedCfg.posYOffset) or 100
@@ -1377,6 +1557,12 @@ task.spawn(function()
 			safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
 			safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
 			safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
+			setNickRgbVisual(state.nickRgb)
+			setSpinBotVisual(state.spinBot)
+			syncSpinSpeedLabel()
+			if state.nickRgb or state.spinBot then
+				startWorldEffectsLoop()
+			end
 			syncAutoExecVisual()
 			applyCosmetics(lp.Character)
 			updatePreview()
