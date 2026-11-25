@@ -600,17 +600,23 @@ local function applySkinOnly(skinId)
 end
 
 -- ══ UI ══
-local oldGui = CG:FindFirstChild("MysticStorePanelV3")
-if oldGui then pcall(function() oldGui:Destroy() end) end
-local legacyGui = CG:FindFirstChild("MysticPanelV3")
-if legacyGui then pcall(function() legacyGui:Destroy() end) end
+local oldGui = pcall(function()
+	local g = CG:FindFirstChild("MysticStorePanelV3")
+	if g then g:Destroy() end
+end)
+pcall(function()
+	local lg = CG:FindFirstChild("MysticPanelV3")
+	if lg then lg:Destroy() end
+end)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "MysticStorePanelV3"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 if not pcall(function() gui.Parent = CG end) then
-	gui.Parent = lp:WaitForChild("PlayerGui")
+	pcall(function()
+		gui.Parent = lp:WaitForChild("PlayerGui")
+	end)
 end
 
 local T = {
@@ -806,27 +812,26 @@ local function getThumbData(tabId, item)
 end
 
 local function canTouchUi()
-	return gui ~= nil
-		and gui.Parent ~= nil
-		and main ~= nil
-		and main.Parent ~= nil
-		and body ~= nil
-		and body.Parent ~= nil
-		and not state.minimized
-		and state.tab ~= "misc"
+	local ok, ready = pcall(function()
+		if state.minimized or state.tab == "misc" then return false end
+		if not gui or not main or not body then return false end
+		local pGui = gui.Parent
+		local pMain = main.Parent
+		local pBody = body.Parent
+		return pGui ~= nil and pMain ~= nil and pBody ~= nil
+	end)
+	return ok and ready == true
 end
 
 local function safeSetProp(inst, propName, value)
-	if not inst or not inst.Parent then return end
 	pcall(function()
-		inst[propName] = value
+		if inst then
+			inst[propName] = value
+		end
 	end)
 end
 
 local function updatePreview()
-	if not canTouchUi() then
-		return
-	end
 	task.defer(function()
 		if not canTouchUi() then
 			return
@@ -866,7 +871,7 @@ local function updatePreview()
 		safeSetProp(previewRarityLbl, "Text", rarityText)
 
 		for _, entry in ipairs(gridCards) do
-			if entry and entry.card and entry.card.Parent then
+			if entry and entry.card then
 				local sel = (entry.itemId == item.id)
 				safeSetProp(entry.card, "BackgroundColor3", sel and T.cardSel or T.card)
 				pcall(function()
@@ -881,13 +886,11 @@ local function updatePreview()
 end
 
 local function refreshRarityButtons()
-	if not gui or not gui.Parent then return end
 	task.defer(function()
-		if not gui or not gui.Parent then return end
 		pcall(function()
 			local selectedRarity = RARITIES[state.rarityIdx] or RARITIES[1]
 			for _, rb in ipairs(rarityBtns) do
-				if rb.btn and rb.btn.Parent then
+				if rb.btn then
 					local isSel = (rb.rarity == selectedRarity)
 					safeSetProp(rb.btn, "BackgroundColor3", isSel and T.accent or T.card)
 					safeSetProp(rb.btn, "TextColor3", isSel and T.text or T.muted)
@@ -898,9 +901,7 @@ local function refreshRarityButtons()
 end
 
 local function setSkinsRgbVisual(enabled)
-	if not skinsRgbToggle or not skinsRgbToggle.Parent then return end
 	task.defer(function()
-		if not skinsRgbToggle or not skinsRgbToggle.Parent then return end
 		safeSetProp(skinsRgbToggle, "Text", enabled and "ON" or "OFF")
 		safeSetProp(skinsRgbToggle, "TextColor3", enabled and T.text or T.muted)
 		safeSetProp(skinsRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
@@ -922,7 +923,7 @@ local function startSkinsRgbLoop()
 	local currentGen = rgbLoopGen
 	task.spawn(function()
 		local idx = 1
-		while state.skinsRgb and currentGen == rgbLoopGen and gui and gui.Parent do
+		while state.skinsRgb and currentGen == rgbLoopGen do
 			local count = #skinList
 			if count > 0 then
 				if idx > count then idx = 1 end
@@ -959,9 +960,7 @@ local function setSkinsRgbEnabled(enabled)
 end
 
 local function buildGrid(tabId)
-	if not gui or not gui.Parent then return end
 	task.defer(function()
-		if not gui or not gui.Parent then return end
 		pcall(function()
 			for _, entry in ipairs(gridCards) do
 				if entry.card then pcall(function() entry.card:Destroy() end) end
@@ -1049,10 +1048,9 @@ local TABS = {
 local function switchTab(tabId)
 	state.tab = tabId
 	task.defer(function()
-		if not gui or not gui.Parent then return end
 		pcall(function()
 			for _, tb in ipairs(tabBtns) do
-				if tb.btn and tb.btn.Parent then
+				if tb.btn then
 					safeSetProp(tb.btn, "BackgroundColor3", (tb.id == tabId) and T.tabSel or T.tabBg)
 					safeSetProp(tb.btn, "TextColor3", (tb.id == tabId) and T.text or T.muted)
 				end
@@ -1097,10 +1095,8 @@ saveCfgBtn.MouseButton1Click:Connect(function()
 	safeSetProp(saveCfgBtn, "Text", "SALVO")
 	safeSetProp(saveCfgBtn, "BackgroundColor3", T.accentD)
 	task.delay(1.2, function()
-		if saveCfgBtn and saveCfgBtn.Parent then
-			safeSetProp(saveCfgBtn, "Text", "SALVAR")
-			safeSetProp(saveCfgBtn, "BackgroundColor3", T.accent)
-		end
+		safeSetProp(saveCfgBtn, "Text", "SALVAR")
+		safeSetProp(saveCfgBtn, "BackgroundColor3", T.accent)
 	end)
 end)
 
@@ -1133,29 +1129,32 @@ lp.CharacterAdded:Connect(function(char)
 	applyCosmetics(char)
 end)
 
-refreshRarityButtons()
-switchTab("skin")
+task.spawn(function()
+	pcall(function()
+		refreshRarityButtons()
+		switchTab("skin")
 
-local savedCfg = loadSavedConfig()
-if type(savedCfg) == "table" then
-	if type(savedCfg.skinId) == "string" and savedCfg.skinId ~= "" then state.skinId = savedCfg.skinId end
-	if type(savedCfg.colorId) == "string" and savedCfg.colorId ~= "" then state.colorId = savedCfg.colorId end
-	if type(savedCfg.trailId) == "string" and savedCfg.trailId ~= "" then state.trailId = savedCfg.trailId end
-	if type(savedCfg.punchId) == "string" and savedCfg.punchId ~= "" then state.punchId = savedCfg.punchId end
-	if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
-	safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
-	safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
-	safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
-	applyCosmetics(lp.Character)
-	updatePreview()
-end
+		local savedCfg = loadSavedConfig()
+		if type(savedCfg) == "table" then
+			if type(savedCfg.skinId) == "string" and savedCfg.skinId ~= "" then state.skinId = savedCfg.skinId end
+			if type(savedCfg.colorId) == "string" and savedCfg.colorId ~= "" then state.colorId = savedCfg.colorId end
+			if type(savedCfg.trailId) == "string" and savedCfg.trailId ~= "" then state.trailId = savedCfg.trailId end
+			if type(savedCfg.punchId) == "string" and savedCfg.punchId ~= "" then state.punchId = savedCfg.punchId end
+			if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
+			safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
+			safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
+			safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
+			applyCosmetics(lp.Character)
+			updatePreview()
+		end
+	end)
 
--- Se o Auto Execute já estava ativo na sessão anterior ou for reaberto via teleporte, mantém a próxima fila pronta
-if state.autoExec then
-	syncAutoExecVisual()
-	task.delay(1.5, function()
-		if state.autoExec and gui and gui.Parent then
+	-- Reenfileira o Auto Execute após o carregamento para a próxima troca de servidor
+	task.wait(2)
+	pcall(function()
+		if state.autoExec then
+			syncAutoExecVisual()
 			queueTeleportActions(true)
 		end
 	end)
-end
+end)
