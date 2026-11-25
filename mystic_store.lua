@@ -206,7 +206,7 @@ local function resolveThumbAsset(rawId)
 end
 
 local RARITIES = {
-	"COMUM", "RARO", "ÉPICO", "LENDÁRIO", "MÍTICO",
+	"COMUM", "RARO", "EPICO", "LENDARIO", "MITICO",
 	"13TH FRIDAY", "BETA", "SUMMER 1", "SUMMER 2",
 }
 
@@ -221,14 +221,14 @@ local RARITY_MATCHERS = {
 		"boneconinjarelampago", "boneconinjavermelho",
 		"boneconinjasombras", "bonecosamurai",
 	},
-	["ÉPICO"] = {
+	EPICO = {
 		"piloto", "boxeador", "lenco preto", "lenco vermelho", "vermelho",
 		"lenco fina", "fina", "bonecopiloto", "bonecoboxeador",
 		"bonecolencopreto", "bonecolencovermelho",
 		"bonecolencobranco", "bonecolencofina",
 	},
-	["LENDÁRIO"] = { "homem corvo", "bonecohomemcorvo" },
-	["MÍTICO"] = { "craque 10", "craque", "bonecocraque" },
+	LENDARIO = { "homem corvo", "bonecohomemcorvo" },
+	MITICO = { "craque 10", "craque", "bonecocraque" },
 	["13TH FRIDAY"] = {
 		"ghostyface", "mascarado", "mumia",
 		"bonecoghostyface", "bonecomascarado", "bonecomumia",
@@ -254,7 +254,7 @@ local function getRarityForSkin(item)
 		or string.find(combined, "preto", 1, true)
 		or string.find(combined, "vermelho", 1, true)
 		or string.find(combined, "fina", 1, true) then
-		return "ÉPICO"
+		return "EPICO"
 	end
 	if string.find(combined, "ninja", 1, true) and string.find(combined, "vermelho", 1, true) then
 		return "RARO"
@@ -266,7 +266,7 @@ local function getRarityForSkin(item)
 			end
 		end
 	end
-	return "ÉPICO"
+	return "EPICO"
 end
 
 local TRAIL_THUMBS = {
@@ -369,15 +369,15 @@ local function buildSkinsByRarityOrder(rawSkins)
 				}
 			end
 		else
-			local rName = getRarityForSkin(item) or "ÉPICO"
+			local rName = getRarityForSkin(item) or "EPICO"
 			if not buckets[rName] then buckets[rName] = {} end
 			table.insert(buckets[rName], item)
 		end
 	end
 
-	if not buckets["ÉPICO"] then buckets["ÉPICO"] = {} end
+	if not buckets.EPICO then buckets.EPICO = {} end
 	for slotIdx, def in ipairs(REQUIRED_LENCOS) do
-		table.insert(buckets["ÉPICO"], foundLencos[slotIdx] or { id = def.id, name = def.name })
+		table.insert(buckets.EPICO, foundLencos[slotIdx] or { id = def.id, name = def.name })
 	end
 
 	local orderedOut = {}
@@ -421,19 +421,20 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'AGUA", fx = "Agua" },
 }))
 
+-- Garante que todas as skins (incluindo fallback das Lencos) facam parte do ciclo RGB sem duplicatas
 local rgbSkinPool = {}
 do
 	local seen = {}
 	for _, item in ipairs(skinList) do
-		if matchLencoSlot(item) and not seen[item.id] then
+		if item and item.id and not seen[item.id] then
 			seen[item.id] = true
 			rgbSkinPool[#rgbSkinPool + 1] = item
 		end
 	end
-	for _, item in ipairs(skinList) do
-		if not seen[item.id] then
-			seen[item.id] = true
-			rgbSkinPool[#rgbSkinPool + 1] = item
+	for _, def in ipairs(REQUIRED_LENCOS) do
+		if def and def.id and not seen[def.id] then
+			seen[def.id] = true
+			rgbSkinPool[#rgbSkinPool + 1] = { id = def.id, name = def.name }
 		end
 	end
 end
@@ -700,14 +701,16 @@ local function applyRgbSkinFast(skinId, char)
 	local colorId = state.colorId or "COLOR12"
 
 	pcall(function()
-		lp:SetAttribute("SGCharacterVisual", skinId)
+		if lp then
+			lp:SetAttribute("SGCharacterVisual", skinId)
+		end
 	end)
 
-	if char then
+	if char and char.Parent then
 		pcall(function()
 			char:SetAttribute("CharacterVisual", skinId)
 		end)
-		if type(appearance.Build) == "function" then
+		if type(appearance) == "table" and type(appearance.Build) == "function" then
 			pcall(appearance.Build, char, { skin = skinId, color = colorId })
 		end
 	end
@@ -1118,37 +1121,47 @@ local function startSkinsRgbLoop()
 		local idx = 1
 		while state.skinsRgb and currentGen == rgbLoopGen do
 			local pool = rgbSkinPool
-			local count = #pool
+			local count = (type(pool) == "table") and #pool or 0
 			if count > 0 then
-				if idx > count then idx = 1 end
+				if idx < 1 or idx > count then
+					idx = 1
+				end
 				local item = pool[idx]
-				local char = lp.Character
-				if not char then
-					char = lp.CharacterAdded:Wait()
-					task.wait(0.3)
+				local char = lp and lp.Character
+				if (not char or not char.Parent) and lp and state.skinsRgb and currentGen == rgbLoopGen then
+					pcall(function()
+						char = lp.CharacterAdded:Wait()
+					end)
+					if state.skinsRgb and currentGen == rgbLoopGen then
+						task.wait(0.25)
+					end
 				end
 				if item and item.id and state.skinsRgb and currentGen == rgbLoopGen then
-					applyRgbSkinFast(item.id, char)
+					applyRgbSkinFast(tostring(item.id), char)
 					if not state.minimized and state.tab == "skin" then
 						updatePreview()
 					end
 				end
 				idx += 1
-				task.wait(1.05)
+				if state.skinsRgb and currentGen == rgbLoopGen then
+					task.wait(0.95)
+				end
 			else
-				task.wait(1.0)
+				if state.skinsRgb and currentGen == rgbLoopGen then
+					task.wait(0.95)
+				end
 			end
 		end
 	end)
 end
 
 local function setSkinsRgbEnabled(enabled)
-	state.skinsRgb = enabled and true or false
-	setSkinsRgbVisual(state.skinsRgb)
-	if state.skinsRgb then
+	local nextVal = enabled and true or false
+	state.skinsRgb = nextVal
+	rgbLoopGen += 1
+	setSkinsRgbVisual(nextVal)
+	if nextVal then
 		startSkinsRgbLoop()
-	else
-		rgbLoopGen += 1
 	end
 end
 
@@ -1307,8 +1320,7 @@ minBtn.MouseButton1Click:Connect(function()
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
-	state.skinsRgb = false
-	rgbLoopGen += 1
+	setSkinsRgbEnabled(false)
 	pcall(function() gui:Destroy() end)
 end)
 
