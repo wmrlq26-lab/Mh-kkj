@@ -1,11 +1,11 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Final Otimizado)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local CG = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
 
 local lp = Players.LocalPlayer
 
--- URL raw do GitHub usada diretamente no Auto Execute via queue_on_teleport
 local AUTO_EXEC_URL = "https://raw.githubusercontent.com/wmrlq26-lab/Mh-kkj/refs/heads/main/mystic_store.lua"
 local CONFIG_FILE = "mystic_store_config.txt"
 
@@ -78,7 +78,9 @@ local SKIN_THUMBS = {
 	Boneco_Noob_Moletom    = "rbxassetid://74327146599508",
 
 	BonecoLencoBranco      = "rbxassetid://73534313721213",
+	LencoBranco            = "rbxassetid://73534313721213",
 	BonecoLencoVermelho    = "rbxassetid://73534313721213",
+	LencoVermelho          = "rbxassetid://73534313721213",
 	Vermelho               = "rbxassetid://73534313721213",
 	BonecoLencoPreto       = "rbxassetid://99316488557407",
 	LencoPreto             = "rbxassetid://99316488557407",
@@ -339,12 +341,53 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'ÁGUA", fx = "Agua" },
 }))
 
+-- Garante que as variantes de Lenço estejam presentes na lista de skins para o RGB
+local LENCO_VARIANTS = {
+	{ id = "BonecoLencoBranco", name = "LENÇO BRANCO" },
+	{ id = "BonecoLencoVermelho", name = "LENÇO VERMELHO" },
+	{ id = "BonecoLencoPreto", name = "LENÇO PRETO" },
+	{ id = "BonecoLencoFina", name = "LENÇO FINA" },
+}
+
+local function isLencoItem(item)
+	if not item then return false end
+	local idNorm = normalizeText(item.id):gsub("%s+", "")
+	local nameNorm = normalizeText(item.name):gsub("%s+", "")
+	return string.find(idNorm, "lenco", 1, true) ~= nil
+		or string.find(nameNorm, "lenco", 1, true) ~= nil
+		or idNorm == "vermelho" or idNorm == "fina"
+end
+
+local rgbSkinPool = {}
+do
+	local seen = {}
+	for _, item in ipairs(skinList) do
+		if isLencoItem(item) and not seen[item.id] then
+			seen[item.id] = true
+			rgbSkinPool[#rgbSkinPool + 1] = item
+		end
+	end
+	for _, fallbackLenco in ipairs(LENCO_VARIANTS) do
+		if not seen[fallbackLenco.id] then
+			seen[fallbackLenco.id] = true
+			rgbSkinPool[#rgbSkinPool + 1] = fallbackLenco
+		end
+	end
+	for _, item in ipairs(skinList) do
+		if not seen[item.id] then
+			seen[item.id] = true
+			rgbSkinPool[#rgbSkinPool + 1] = item
+		end
+	end
+end
+
 local state = {
 	skinId = skinList[1] and skinList[1].id or "BonecoNoob",
 	colorId = colorList[1] and colorList[1].id or "COLOR12",
 	trailId = trailList[1] and trailList[1].id or "Fumaca",
 	punchId = punchList[1] and punchList[1].id or "Padrao",
 	rarityIdx = 1, tab = "skin", hideNames = false, autoExec = false, skinsRgb = false, minimized = false,
+	posX = 4, posYScale = 0, posYOffset = 100,
 }
 
 local function escapeLuaStr(val)
@@ -363,6 +406,10 @@ local function saveConfigToFile()
 		punchId = tostring(state.punchId ~= "" and state.punchId or "Padrao"),
 		hideNames = state.hideNames and true or false,
 		autoExec = state.autoExec and true or false,
+		minimized = state.minimized and true or false,
+		posX = tonumber(state.posX) or 4,
+		posYScale = tonumber(state.posYScale) or 0,
+		posYOffset = tonumber(state.posYOffset) or 100,
 	}
 	cachedSessionCfg = cfg
 	if type(writefile) == "function" then
@@ -373,6 +420,10 @@ local function saveConfigToFile()
 			cfg.punchId,
 			cfg.hideNames and "1" or "0",
 			cfg.autoExec and "1" or "0",
+			cfg.minimized and "1" or "0",
+			tostring(cfg.posX),
+			tostring(cfg.posYScale),
+			tostring(cfg.posYOffset),
 		}, "|"))
 	end
 	return cfg
@@ -393,6 +444,10 @@ local function loadSavedConfig()
 						punchId = parts[4],
 						hideNames = (parts[5] == "1"),
 						autoExec = (parts[6] == "1"),
+						minimized = (parts[7] == "1"),
+						posX = tonumber(parts[8]) or 4,
+						posYScale = tonumber(parts[9]) or 0,
+						posYOffset = tonumber(parts[10]) or 100,
 					}
 				end
 			end
@@ -582,7 +637,8 @@ local function applyCosmetics(charOverride)
 	end)
 end
 
-local function applySkinOnly(skinId)
+-- Aplica a skin de forma leve no loop RGB (inclui suporte às variantes Lenço)
+local function applyRgbSkinFast(skinId, char)
 	if type(skinId) ~= "string" or skinId == "" then return end
 	state.skinId = skinId
 	local colorId = state.colorId or "COLOR12"
@@ -591,7 +647,6 @@ local function applySkinOnly(skinId)
 		lp:SetAttribute("SGCharacterVisual", skinId)
 	end)
 
-	local char = lp.Character
 	if char then
 		pcall(function()
 			char:SetAttribute("CharacterVisual", skinId)
@@ -641,11 +696,14 @@ end
 
 local PANEL_W, PANEL_H = 304, 286
 local main = Instance.new("Frame")
-main.Name = "Main"; main.Size = UDim2.new(0, PANEL_W, 0, PANEL_H); main.Position = UDim2.new(0, 4, 0.14, 0)
-main.BackgroundColor3 = T.bg; main.BorderSizePixel = 0; main.Active = true; main.Draggable = true; main.Parent = gui
+main.Name = "Main"
+main.Size = UDim2.new(0, PANEL_W, 0, PANEL_H)
+main.Position = UDim2.new(0, state.posX, state.posYScale, state.posYOffset)
+main.BackgroundColor3 = T.bg; main.BorderSizePixel = 0; main.Active = true; main.Parent = gui
 corner(main, 11); stroke(main, Color3.fromRGB(50, 55, 90), 1)
 
 local header = Instance.new("Frame")
+header.Name = "Header"
 header.Size = UDim2.new(1, 0, 0, 30); header.BackgroundColor3 = T.header; header.BorderSizePixel = 0; header.Parent = main
 corner(header, 11)
 
@@ -677,6 +735,102 @@ local closeBtn = headerBtn(-26, "X", T.danger)
 local body = Instance.new("Frame")
 body.Name = "Body"; body.Size = UDim2.new(1, -10, 1, -36); body.Position = UDim2.new(0, 5, 0, 33)
 body.BackgroundTransparency = 1; body.Parent = main
+
+local function safeSetProp(inst, propName, value)
+	pcall(function()
+		if inst then
+			inst[propName] = value
+		end
+	end)
+end
+
+local updatePreview
+
+local function applyMinimizeState(minimized, persist)
+	state.minimized = minimized and true or false
+	safeSetProp(body, "Visible", not state.minimized)
+	safeSetProp(main, "Size", state.minimized and UDim2.new(0, PANEL_W, 0, 30) or UDim2.new(0, PANEL_W, 0, PANEL_H))
+	safeSetProp(minBtn, "Text", state.minimized and "+" or "-")
+	if persist then
+		saveConfigToFile()
+	end
+	if not state.minimized and type(updatePreview) == "function" then
+		updatePreview()
+	end
+end
+
+-- Arraste manual leve e sem salvar a cada frame
+local dragging = false
+local dragInput = nil
+local dragStartPos = Vector2.zero
+local startMainPos = main.Position
+
+local function clampMainPosition(targetPos)
+	local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+	local curH = state.minimized and 30 or PANEL_H
+	local maxX = math.max(0, vpSize.X - PANEL_W)
+	local maxY = math.max(0, vpSize.Y - curH)
+	local absX = math.clamp(targetPos.X.Scale * vpSize.X + targetPos.X.Offset, 0, maxX)
+	local absY = math.clamp(targetPos.Y.Scale * vpSize.Y + targetPos.Y.Offset, 0, maxY)
+	return UDim2.new(0, math.floor(absX + 0.5), 0, math.floor(absY + 0.5))
+end
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		local pos2 = input.Position
+		local function hitBtn(btn)
+			local ok, hit = pcall(function()
+				local p = btn.AbsolutePosition
+				local s = btn.AbsoluteSize
+				return pos2.X >= p.X and pos2.X <= p.X + s.X and pos2.Y >= p.Y and pos2.Y <= p.Y + s.Y
+			end)
+			return ok and hit
+		end
+		if hitBtn(minBtn) or hitBtn(closeBtn) then return end
+
+		dragging = true
+		dragInput = input
+		dragStartPos = input.Position
+		startMainPos = main.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End and dragInput == input then
+				dragging = false
+				dragInput = nil
+				state.posX = main.Position.X.Offset
+				state.posYScale = 0
+				state.posYOffset = main.Position.Y.Offset
+				saveConfigToFile()
+			end
+		end)
+	end
+end)
+
+header.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		if dragging and not dragInput then
+			dragInput = input
+		end
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if not dragging or input ~= dragInput then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		local delta = input.Position - dragStartPos
+		local nextPos = UDim2.new(
+			startMainPos.X.Scale,
+			startMainPos.X.Offset + delta.X,
+			startMainPos.Y.Scale,
+			startMainPos.Y.Offset + delta.Y
+		)
+		local clamped = clampMainPosition(nextPos)
+		safeSetProp(main, "Position", clamped)
+		state.posX = clamped.X.Offset
+		state.posYScale = 0
+		state.posYOffset = clamped.Y.Offset
+	end
+end)
 
 local tabBar = Instance.new("ScrollingFrame")
 tabBar.Size = UDim2.new(1, 0, 0, 24); tabBar.BackgroundColor3 = T.tabBg; tabBar.BorderSizePixel = 0
@@ -826,15 +980,7 @@ local function canTouchUi()
 	return ok and ready == true
 end
 
-local function safeSetProp(inst, propName, value)
-	pcall(function()
-		if inst then
-			inst[propName] = value
-		end
-	end)
-end
-
-local function updatePreview()
+updatePreview = function()
 	task.defer(function()
 		if not canTouchUi() then
 			return
@@ -904,49 +1050,39 @@ local function refreshRarityButtons()
 end
 
 local function setSkinsRgbVisual(enabled)
-	task.defer(function()
-		safeSetProp(skinsRgbToggle, "Text", enabled and "ON" or "OFF")
-		safeSetProp(skinsRgbToggle, "TextColor3", enabled and T.text or T.muted)
-		safeSetProp(skinsRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
-	end)
+	safeSetProp(skinsRgbToggle, "Text", enabled and "ON" or "OFF")
+	safeSetProp(skinsRgbToggle, "TextColor3", enabled and T.text or T.muted)
+	safeSetProp(skinsRgbToggle, "BackgroundColor3", enabled and T.accentD or T.btn)
 end
 
 local rgbLoopGen = 0
-local function isLencoSkin(item)
-	if not item then return false end
-	local combined = normalizeText(item.name) .. " " .. normalizeText(item.id)
-	return string.find(combined, "lenco", 1, true) ~= nil
-		or string.find(combined, "preto", 1, true) ~= nil
-		or string.find(combined, "vermelho", 1, true) ~= nil
-		or string.find(combined, "fina", 1, true) ~= nil
-end
-
 local function startSkinsRgbLoop()
 	rgbLoopGen += 1
 	local currentGen = rgbLoopGen
 	task.spawn(function()
 		local idx = 1
 		while state.skinsRgb and currentGen == rgbLoopGen do
-			local count = #skinList
+			local pool = rgbSkinPool
+			local count = #pool
 			if count > 0 then
 				if idx > count then idx = 1 end
-				local item = skinList[idx]
-				if item and item.id then
-					if not lp.Character then
-						lp.CharacterAdded:Wait()
-						task.wait(0.35)
-					end
-					applySkinOnly(item.id)
-					if state.tab == "skin" and not state.minimized then
+				local item = pool[idx]
+				local char = lp.Character
+				if not char then
+					char = lp.CharacterAdded:Wait()
+					task.wait(0.3)
+				end
+				if item and item.id and state.skinsRgb and currentGen == rgbLoopGen then
+					applyRgbSkinFast(item.id, char)
+					if not state.minimized and state.tab == "skin" then
 						updatePreview()
 					end
-					task.wait(isLencoSkin(item) and 1.35 or 0.9)
-				else
-					task.wait(0.5)
 				end
 				idx += 1
+				-- Intervalo otimizado para manter FPS estável e dar tempo para Lenços renderizarem
+				task.wait(1.05)
 			else
-				task.wait(0.9)
+				task.wait(1.0)
 			end
 		end
 	end)
@@ -1113,13 +1249,7 @@ hideToggle.MouseButton1Click:Connect(function()
 end)
 
 minBtn.MouseButton1Click:Connect(function()
-	state.minimized = not state.minimized
-	safeSetProp(body, "Visible", not state.minimized)
-	safeSetProp(main, "Size", state.minimized and UDim2.new(0, PANEL_W, 0, 30) or UDim2.new(0, PANEL_W, 0, PANEL_H))
-	safeSetProp(minBtn, "Text", state.minimized and "+" or "-")
-	if not state.minimized then
-		updatePreview()
-	end
+	applyMinimizeState(not state.minimized, true)
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -1129,7 +1259,7 @@ closeBtn.MouseButton1Click:Connect(function()
 end)
 
 lp.CharacterAdded:Connect(function(char)
-	task.wait(1)
+	task.wait(0.8)
 	applyCosmetics(char)
 end)
 
@@ -1146,6 +1276,15 @@ task.spawn(function()
 			if type(savedCfg.punchId) == "string" and savedCfg.punchId ~= "" then state.punchId = savedCfg.punchId end
 			if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
 			if type(savedCfg.autoExec) == "boolean" then state.autoExec = savedCfg.autoExec end
+			if type(savedCfg.minimized) == "boolean" then state.minimized = savedCfg.minimized end
+			state.posX = tonumber(savedCfg.posX) or 4
+			state.posYScale = tonumber(savedCfg.posYScale) or 0
+			state.posYOffset = tonumber(savedCfg.posYOffset) or 100
+
+			local restoredPos = clampMainPosition(UDim2.new(0, state.posX, state.posYScale, state.posYOffset))
+			safeSetProp(main, "Position", restoredPos)
+			applyMinimizeState(state.minimized, false)
+
 			safeSetProp(hideToggle, "Text", state.hideNames and "ON" or "OFF")
 			safeSetProp(hideToggle, "TextColor3", state.hideNames and T.text or T.muted)
 			safeSetProp(hideToggle, "BackgroundColor3", state.hideNames and T.accentD or T.btn)
@@ -1155,7 +1294,6 @@ task.spawn(function()
 		end
 	end)
 
-	-- Garante que o Auto Execute fique enfileirado automaticamente assim que o script abrir
 	task.wait(1.5)
 	pcall(function()
 		if state.autoExec then
