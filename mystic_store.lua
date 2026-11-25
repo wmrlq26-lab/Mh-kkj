@@ -1,4 +1,4 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Final Otimizado)
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Final Otimizado & Anti-Lag)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local CG = game:GetService("CoreGui")
@@ -329,10 +329,11 @@ local function deduplicateById(list)
 	return out
 end
 
+-- 1=Lenco Branca, 2=Lenco Vermelho, 3=Lenco Preto, 4=Lenco Fina
 local REQUIRED_LENCOS = {
 	{ id = "BonecoLencoBranco",   name = "LENCO BRANCA",   matchKeys = { "lenco branco", "bonecolencobranco", "lencobranco" } },
-	{ id = "BonecoLencoVermelho", name = "LENCO VERMELHA", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
-	{ id = "BonecoLencoPreto",    name = "LENCO PRETA",    matchKeys = { "lenco preto", "lenco preta", "bonecolencopreto", "lencopreto" } },
+	{ id = "BonecoLencoVermelho", name = "LENCO VERMELHO", matchKeys = { "lenco vermelho", "lenco vermelha", "bonecolencovermelho", "lencovermelho", "vermelho" } },
+	{ id = "BonecoLencoPreto",    name = "LENCO PRETO",    matchKeys = { "lenco preto", "lenco preta", "bonecolencopreto", "lencopreto" } },
 	{ id = "BonecoLencoFina",     name = "LENCO FINA",     matchKeys = { "lenco fina", "bonecolencofina", "lencofina", "fina" } },
 }
 
@@ -362,10 +363,12 @@ local function buildSkinsByRarityOrder(rawSkins)
 	for _, item in ipairs(deduped) do
 		local slotIdx = matchLencoSlot(item)
 		if slotIdx then
+			-- Mantem apenas a primeira ocorrencia de cada slot de Lenco para evitar duplicatas
 			if not foundLencos[slotIdx] then
+				local stdName = REQUIRED_LENCOS[slotIdx].name
 				foundLencos[slotIdx] = {
 					id = tostring(item.id),
-					name = tostring(item.name or REQUIRED_LENCOS[slotIdx].name),
+					name = stdName,
 				}
 			end
 		else
@@ -382,10 +385,13 @@ local function buildSkinsByRarityOrder(rawSkins)
 
 	local orderedOut = {}
 	local seenIds = {}
+	local seenNormNames = {}
 	for _, rName in ipairs(RARITIES) do
 		for _, item in ipairs(buckets[rName] or {}) do
-			if item.id and not seenIds[item.id] then
+			local normN = normalizeText(item.name or item.id)
+			if item.id and not seenIds[item.id] and (normN == "" or not seenNormNames[normN]) then
 				seenIds[item.id] = true
+				if normN ~= "" then seenNormNames[normN] = true end
 				table.insert(orderedOut, item)
 			end
 		end
@@ -398,8 +404,10 @@ local function buildSkinsByRarityOrder(rawSkins)
 		end
 		if not inStandard then
 			for _, item in ipairs(list) do
-				if item.id and not seenIds[item.id] then
+				local normN = normalizeText(item.name or item.id)
+				if item.id and not seenIds[item.id] and (normN == "" or not seenNormNames[normN]) then
 					seenIds[item.id] = true
+					if normN ~= "" then seenNormNames[normN] = true end
 					table.insert(orderedOut, item)
 				end
 			end
@@ -421,7 +429,7 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'AGUA", fx = "Agua" },
 }))
 
--- Garante que todas as skins (incluindo fallback das Lencos) facam parte do ciclo RGB sem duplicatas
+-- Todas as skins unicas disponiveis no ciclo RGB (sem filtro de raridade e sem duplicatas)
 local rgbSkinPool = {}
 do
 	local seen = {}
@@ -429,12 +437,6 @@ do
 		if item and item.id and not seen[item.id] then
 			seen[item.id] = true
 			rgbSkinPool[#rgbSkinPool + 1] = item
-		end
-	end
-	for _, def in ipairs(REQUIRED_LENCOS) do
-		if def and def.id and not seen[def.id] then
-			seen[def.id] = true
-			rgbSkinPool[#rgbSkinPool + 1] = { id = def.id, name = def.name }
 		end
 	end
 end
@@ -655,7 +657,10 @@ local function applyPunchFx(punchId, punchFxName, char)
 	end
 end
 
+local isApplyingCosmetics = false
 local function applyCosmetics(charOverride)
+	if isApplyingCosmetics then return end
+	isApplyingCosmetics = true
 	pcall(function()
 		local skin = findItemById(skinList, state.skinId)
 		local color = findItemById(colorList, state.colorId)
@@ -677,7 +682,7 @@ local function applyCosmetics(charOverride)
 		end)
 
 		local char = charOverride or lp.Character
-		if char then
+		if char and char.Parent then
 			pcall(function()
 				char:SetAttribute("CharacterVisual", skinId)
 				char:SetAttribute("CharacterColor", colorId)
@@ -693,8 +698,10 @@ local function applyCosmetics(charOverride)
 			applyPunchFx(punchId, punchFx, nil)
 		end
 	end)
+	isApplyingCosmetics = false
 end
 
+local lastRgbBuildClock = 0
 local function applyRgbSkinFast(skinId, char)
 	if type(skinId) ~= "string" or skinId == "" then return end
 	state.skinId = skinId
@@ -710,7 +717,9 @@ local function applyRgbSkinFast(skinId, char)
 		pcall(function()
 			char:SetAttribute("CharacterVisual", skinId)
 		end)
-		if type(appearance) == "table" and type(appearance.Build) == "function" then
+		local now = os.clock()
+		if (now - lastRgbBuildClock) >= 0.75 and type(appearance) == "table" and type(appearance.Build) == "function" then
+			lastRgbBuildClock = now
 			pcall(appearance.Build, char, { skin = skinId, color = colorId })
 		end
 	end
@@ -1133,7 +1142,7 @@ local function startSkinsRgbLoop()
 						char = lp.CharacterAdded:Wait()
 					end)
 					if state.skinsRgb and currentGen == rgbLoopGen then
-						task.wait(0.25)
+						task.wait(0.35)
 					end
 				end
 				if item and item.id and state.skinsRgb and currentGen == rgbLoopGen then
@@ -1144,11 +1153,11 @@ local function startSkinsRgbLoop()
 				end
 				idx += 1
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(0.95)
+					task.wait(1.15)
 				end
 			else
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(0.95)
+					task.wait(1.15)
 				end
 			end
 		end
