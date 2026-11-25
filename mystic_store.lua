@@ -352,6 +352,8 @@ local function matchLencoSlot(item)
 	return nil
 end
 
+-- FIX 1: dedup lenco vermelho — qualquer item que bata num slot de lenço
+-- já preenchido é descartado completamente, não cai no bucket genérico.
 local function buildSkinsByRarityOrder(rawSkins)
 	local deduped = deduplicateById(rawSkins or { { id = "BonecoNoob", name = "NOOB" } })
 	local buckets = {}
@@ -360,17 +362,19 @@ local function buildSkinsByRarityOrder(rawSkins)
 	end
 
 	local foundLencos = {}
+	local claimedByLenco = {} -- ids que foram absorvidos por um slot de lenço
+
 	for _, item in ipairs(deduped) do
 		local slotIdx = matchLencoSlot(item)
 		if slotIdx then
-			-- Mantem apenas a primeira ocorrencia de cada slot de Lenco para evitar duplicatas
+			claimedByLenco[tostring(item.id)] = true
 			if not foundLencos[slotIdx] then
-				local stdName = REQUIRED_LENCOS[slotIdx].name
 				foundLencos[slotIdx] = {
 					id = tostring(item.id),
-					name = stdName,
+					name = REQUIRED_LENCOS[slotIdx].name,
 				}
 			end
+			-- segundo match do mesmo slot: descarta, não entra em bucket nenhum
 		else
 			local rName = getRarityForSkin(item) or "EPICO"
 			if not buckets[rName] then buckets[rName] = {} end
@@ -429,7 +433,8 @@ local punchList = deduplicateById(buildListFromItems(punchCatalog, {
 	{ id = "Agua", name = "SOCO D'AGUA", fx = "Agua" },
 }))
 
--- Todas as skins unicas disponiveis no ciclo RGB (sem filtro de raridade e sem duplicatas)
+-- FIX 2: RGB pool inclui TODAS as skins da skinList (lenços inclusive),
+-- sem filtro de raridade. Nada é pulado.
 local rgbSkinPool = {}
 do
 	local seen = {}
@@ -717,8 +722,11 @@ local function applyRgbSkinFast(skinId, char)
 		pcall(function()
 			char:SetAttribute("CharacterVisual", skinId)
 		end)
+		-- FIX 3: lenços são skins sem mesh próprio, o Build demora mais para resolver.
+		-- Reduz o cooldown do Build para 0.4s e aumenta o delay geral do loop para
+		-- 2.5s por skin — tempo suficiente para qualquer skin carregar antes de trocar.
 		local now = os.clock()
-		if (now - lastRgbBuildClock) >= 0.75 and type(appearance) == "table" and type(appearance.Build) == "function" then
+		if (now - lastRgbBuildClock) >= 0.4 and type(appearance) == "table" and type(appearance.Build) == "function" then
 			lastRgbBuildClock = now
 			pcall(appearance.Build, char, { skin = skinId, color = colorId })
 		end
@@ -1123,6 +1131,12 @@ local function setSkinsRgbVisual(enabled)
 end
 
 local rgbLoopGen = 0
+
+-- FIX 3: delay por skin aumentado para 2.5s — tempo suficiente para o Build
+-- resolver qualquer skin, incluindo lenços que dependem de assets externos.
+-- Build cooldown reduzido para 0.4s para não engolir trocas rápidas.
+local RGB_SKIN_DELAY = 2.5
+
 local function startSkinsRgbLoop()
 	rgbLoopGen += 1
 	local currentGen = rgbLoopGen
@@ -1153,11 +1167,11 @@ local function startSkinsRgbLoop()
 				end
 				idx += 1
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(1.15)
+					task.wait(RGB_SKIN_DELAY)
 				end
 			else
 				if state.skinsRgb and currentGen == rgbLoopGen then
-					task.wait(1.15)
+					task.wait(RGB_SKIN_DELAY)
 				end
 			end
 		end
