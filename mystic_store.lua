@@ -1,4 +1,4 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Sem Aba SPIN + FPS ON/OFF na Aba MISC em Verde Inferior Direito)
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Sincronizar RGB Nick + Tag)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -328,6 +328,7 @@ local state = {
 	nickColor = Color3.fromRGB(239, 68, 68),
 	tagText = "", tagRgbOn = false, tagColorOn = false,
 	tagColor = Color3.fromRGB(250, 204, 21),
+	syncRgbOn = false,
 	playerEspOn = false, espNameOn = false,
 }
 
@@ -368,6 +369,7 @@ local function saveConfigToFile()
 		nickRgbOn = state.nickRgbOn and true or false, nickColorOn = state.nickColorOn and true or false, nickColor = state.nickColor,
 		tagText = tostring(state.tagText or ""):gsub("|", "/"),
 		tagRgbOn = state.tagRgbOn and true or false, tagColorOn = state.tagColorOn and true or false, tagColor = state.tagColor,
+		syncRgbOn = state.syncRgbOn and true or false,
 		playerEspOn = state.playerEspOn and true or false, espNameOn = state.espNameOn and true or false,
 	}
 	cachedSessionCfg = cfg
@@ -380,6 +382,7 @@ local function saveConfigToFile()
 			cfg.nickRgbOn and "1" or "0", cfg.nickColorOn and "1" or "0", colorToStr(cfg.nickColor),
 			cfg.tagText, cfg.tagRgbOn and "1" or "0", cfg.tagColorOn and "1" or "0", colorToStr(cfg.tagColor),
 			cfg.playerEspOn and "1" or "0", cfg.espNameOn and "1" or "0", cfg.fpsCounterOn and "1" or "0",
+			cfg.syncRgbOn and "1" or "0",
 		}, "|"))
 	end
 	return cfg
@@ -403,6 +406,7 @@ local function loadSavedConfig()
 						tagText = tostring(p[16] or ""), tagRgbOn = (p[17] == "1"), tagColorOn = (p[18] == "1"),
 						tagColor = strToColor(p[19], Color3.fromRGB(250, 204, 21)),
 						playerEspOn = (p[20] == "1"), espNameOn = (p[21] == "1"), fpsCounterOn = (p[22] == "1"),
+						syncRgbOn = (p[23] == "1"),
 					}
 				end
 			end
@@ -557,20 +561,24 @@ local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
 		end
 
 		table.sort(labels, function(a, b)
-			return (a.AbsoluteSize.X * a.AbsoluteSize.Y) > (b.AbsoluteSize.X * b.AbsoluteSize.Y)
+			local areaA = a.AbsoluteSize.X * a.AbsoluteSize.Y
+			local areaB = b.AbsoluteSize.X * b.AbsoluteSize.Y
+			if areaA ~= areaB then return areaA > areaB end
+			return a.TextSize > b.TextSize
 		end)
 
 		local mainLbl = labels[1]
-		for _, lbl in ipairs(labels) do
+		for idx, lbl in ipairs(labels) do
 			local lowN = string.lower(lbl.Name)
 			local isTagSlot = (mainLbl and lbl ~= mainLbl)
 				and (
-					string.find(lowN, "tag", 1, true)
+					idx == 2
+					or string.find(lowN, "tag", 1, true)
 					or string.find(lowN, "badge", 1, true)
 					or string.find(lowN, "clan", 1, true)
 					or string.find(lowN, "sub", 1, true)
-					or (mainLbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X < mainLbl.AbsoluteSize.X * 0.65)
-					or (lbl.TextSize < mainLbl.TextSize * 0.8)
+					or (mainLbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X < mainLbl.AbsoluteSize.X * 0.72)
+					or (lbl.TextSize < mainLbl.TextSize * 0.88)
 				)
 
 			if isTagSlot then
@@ -584,6 +592,8 @@ local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
 				elseif originalTexts[lbl] ~= nil then
 					lbl.Text = originalTexts[lbl]
 					originalTexts[lbl] = nil
+				elseif activeTagCol then
+					paintLabel(lbl, activeTagCol)
 				end
 			else
 				if restoreNick and originalTexts[lbl] ~= nil then
@@ -717,7 +727,6 @@ if not pcall(function() gui.Parent = CG end) then
 	pcall(function() gui.Parent = lp:WaitForChild("PlayerGui") end)
 end
 
--- Contador de FPS verde no canto inferior direito (controlado pelo toggle FPS na aba MISC)
 local fpsBadge = Instance.new("Frame")
 fpsBadge.Name = "FpsBadge"
 fpsBadge.AnchorPoint = Vector2.new(1, 1)
@@ -767,7 +776,11 @@ RunService.RenderStepped:Connect(function(dt)
 	local needVisual = state.nickRgbOn or state.nickColorOn or state.customNickOn or state.tagRgbOn or state.tagColorOn or (state.tagText ~= "")
 	if needVisual and char and char.Parent then
 		if state.nickRgbOn then nickHue = (nickHue + dt * 0.9) % 1 end
-		if state.tagRgbOn then tagHue = (tagHue + dt * 1.1) % 1 end
+		if state.syncRgbOn and state.nickRgbOn then
+			tagHue = nickHue
+		elseif state.tagRgbOn then
+			tagHue = (tagHue + dt * 1.1) % 1
+		end
 		local activeNickCol = state.nickRgbOn and Color3.fromHSV(nickHue, 0.95, 1) or (state.nickColorOn and state.nickColor or nil)
 		local activeTagCol = state.tagRgbOn and Color3.fromHSV(tagHue, 1, 1) or (state.tagColorOn and state.tagColor or nil)
 		applyNickAndSmallTag(char, activeNickCol, activeTagCol)
@@ -1010,15 +1023,21 @@ nickTagPage.Size = UDim2.new(1, 0, 1, -28); nickTagPage.Position = UDim2.new(0, 
 nickTagPage.BackgroundTransparency = 1; nickTagPage.Visible = false; nickTagPage.Parent = body
 
 local nickRgbBtn = Instance.new("TextButton")
-nickRgbBtn.Size = UDim2.new(1, 0, 0, 22); nickRgbBtn.Position = UDim2.new(0, 0, 0, 2)
+nickRgbBtn.Size = UDim2.new(0.5, -2, 0, 20); nickRgbBtn.Position = UDim2.new(0, 0, 0, 1)
 nickRgbBtn.BackgroundColor3 = T.btn; nickRgbBtn.BorderSizePixel = 0
 nickRgbBtn.Text = "NICK RGB: OFF"; nickRgbBtn.TextColor3 = T.text
 nickRgbBtn.Font = Enum.Font.GothamBlack; nickRgbBtn.TextSize = 8; nickRgbBtn.Parent = nickTagPage; corner(nickRgbBtn, 5)
 
+local syncRgbBtn = Instance.new("TextButton")
+syncRgbBtn.Size = UDim2.new(0.5, -2, 0, 20); syncRgbBtn.Position = UDim2.new(0.5, 2, 0, 1)
+syncRgbBtn.BackgroundColor3 = T.btn; syncRgbBtn.BorderSizePixel = 0
+syncRgbBtn.Text = "SINCRONIZAR RGB: OFF"; syncRgbBtn.TextColor3 = T.text
+syncRgbBtn.Font = Enum.Font.GothamBlack; syncRgbBtn.TextSize = 7; syncRgbBtn.Parent = nickTagPage; corner(syncRgbBtn, 5)
+
 local nickPaletteGrid = Instance.new("Frame")
-nickPaletteGrid.Size = UDim2.new(1, 0, 0, 42); nickPaletteGrid.Position = UDim2.new(0, 0, 0, 28)
+nickPaletteGrid.Size = UDim2.new(1, 0, 0, 38); nickPaletteGrid.Position = UDim2.new(0, 0, 0, 24)
 nickPaletteGrid.BackgroundTransparency = 1; nickPaletteGrid.Parent = nickTagPage
-local nickPalLayout = Instance.new("UIGridLayout"); nickPalLayout.CellSize = UDim2.new(0.25, -3, 0, 19); nickPalLayout.CellPadding = UDim2.new(0, 4, 0, 4); nickPalLayout.Parent = nickPaletteGrid
+local nickPalLayout = Instance.new("UIGridLayout"); nickPalLayout.CellSize = UDim2.new(0.25, -3, 0, 17); nickPalLayout.CellPadding = UDim2.new(0, 4, 0, 3); nickPalLayout.Parent = nickPaletteGrid
 
 local nickColorBtns, tagColorBtns = {}, {}
 
@@ -1041,6 +1060,19 @@ local function refreshNickTagPalettes()
 	end
 end
 
+local function syncNickTagRgbButtons()
+	nickRgbBtn.Text = "NICK RGB: " .. (state.nickRgbOn and "ON" or "OFF")
+	nickRgbBtn.BackgroundColor3 = state.nickRgbOn and T.accent or T.btn
+	smallTagRgbBtn = smallTagRgbBtn
+	if smallTagRgbBtn then
+		smallTagRgbBtn.Text = state.tagRgbOn and "TAG RGB: ON" or "TAG RGB"
+		smallTagRgbBtn.BackgroundColor3 = state.tagRgbOn and T.accent or T.btn
+	end
+	syncRgbBtn.Text = "SINCRONIZAR RGB: " .. (state.syncRgbOn and "ON" or "OFF")
+	syncRgbBtn.BackgroundColor3 = state.syncRgbOn and Color3.fromRGB(22, 163, 74) or T.btn
+	refreshNickTagPalettes()
+end
+
 for _, colVal in ipairs(PALETTE) do
 	local cBtn = Instance.new("TextButton")
 	cBtn.BackgroundColor3 = colVal; cBtn.Text = ""; cBtn.BorderSizePixel = 0; cBtn.Parent = nickPaletteGrid; corner(cBtn, 4)
@@ -1048,21 +1080,39 @@ for _, colVal in ipairs(PALETTE) do
 	nickColorBtns[#nickColorBtns + 1] = { btn = cBtn, col = colVal }
 	cBtn.MouseButton1Click:Connect(function()
 		state.nickRgbOn = false; state.nickColorOn = true; state.nickColor = colVal
-		nickRgbBtn.Text = "NICK RGB: OFF"; nickRgbBtn.BackgroundColor3 = T.btn
-		refreshNickTagPalettes()
+		syncNickTagRgbButtons()
 	end)
 end
 
 nickRgbBtn.MouseButton1Click:Connect(function()
 	state.nickRgbOn = not state.nickRgbOn
-	if state.nickRgbOn then state.nickColorOn = false end
-	nickRgbBtn.Text = "NICK RGB: " .. (state.nickRgbOn and "ON" or "OFF")
-	nickRgbBtn.BackgroundColor3 = state.nickRgbOn and T.accent or T.btn
-	refreshNickTagPalettes()
+	if state.nickRgbOn then
+		state.nickColorOn = false
+		if state.syncRgbOn then
+			state.tagRgbOn = true
+			state.tagColorOn = false
+			tagHue = nickHue
+		end
+	elseif state.syncRgbOn then
+		state.tagRgbOn = false
+	end
+	syncNickTagRgbButtons()
+end)
+
+syncRgbBtn.MouseButton1Click:Connect(function()
+	state.syncRgbOn = not state.syncRgbOn
+	if state.syncRgbOn then
+		state.nickRgbOn = true
+		state.tagRgbOn = true
+		state.nickColorOn = false
+		state.tagColorOn = false
+		tagHue = nickHue
+	end
+	syncNickTagRgbButtons()
 end)
 
 local nickEditRow = Instance.new("Frame")
-nickEditRow.Size = UDim2.new(1, 0, 0, 28); nickEditRow.Position = UDim2.new(0, 0, 0, 75)
+nickEditRow.Size = UDim2.new(1, 0, 0, 26); nickEditRow.Position = UDim2.new(0, 0, 0, 66)
 nickEditRow.BackgroundColor3 = T.card; nickEditRow.BorderSizePixel = 0; nickEditRow.Parent = nickTagPage; corner(nickEditRow, 6)
 
 local nickBox = Instance.new("TextBox")
@@ -1098,7 +1148,7 @@ resetNickBtn.MouseButton1Click:Connect(function()
 end)
 
 local smallTagRow = Instance.new("Frame")
-smallTagRow.Size = UDim2.new(1, 0, 0, 28); smallTagRow.Position = UDim2.new(0, 0, 0, 108)
+smallTagRow.Size = UDim2.new(1, 0, 0, 26); smallTagRow.Position = UDim2.new(0, 0, 0, 96)
 smallTagRow.BackgroundColor3 = T.card; smallTagRow.BorderSizePixel = 0; smallTagRow.Parent = nickTagPage; corner(smallTagRow, 6)
 
 local smallTagBox = Instance.new("TextBox")
@@ -1115,9 +1165,9 @@ smallTagRgbBtn.Text = "TAG RGB"; smallTagRgbBtn.TextColor3 = T.text; smallTagRgb
 smallTagRgbBtn.Parent = smallTagRow; corner(smallTagRgbBtn, 4)
 
 local tagPaletteGrid = Instance.new("Frame")
-tagPaletteGrid.Size = UDim2.new(1, 0, 0, 26); tagPaletteGrid.Position = UDim2.new(0, 0, 0, 141)
+tagPaletteGrid.Size = UDim2.new(1, 0, 0, 24); tagPaletteGrid.Position = UDim2.new(0, 0, 0, 126)
 tagPaletteGrid.BackgroundTransparency = 1; tagPaletteGrid.Parent = nickTagPage
-local tagPalLayout = Instance.new("UIGridLayout"); tagPalLayout.CellSize = UDim2.new(0.125, -3, 0, 22); tagPalLayout.CellPadding = UDim2.new(0, 3, 0, 2); tagPalLayout.Parent = tagPaletteGrid
+local tagPalLayout = Instance.new("UIGridLayout"); tagPalLayout.CellSize = UDim2.new(0.125, -3, 0, 20); tagPalLayout.CellPadding = UDim2.new(0, 3, 0, 2); tagPalLayout.Parent = tagPaletteGrid
 
 for _, colVal in ipairs(PALETTE) do
 	local tBtn = Instance.new("TextButton")
@@ -1127,10 +1177,18 @@ for _, colVal in ipairs(PALETTE) do
 	tBtn.MouseButton1Click:Connect(function()
 		state.tagText = tostring(smallTagBox.Text or "")
 		state.tagRgbOn = false; state.tagColorOn = true; state.tagColor = colVal
-		smallTagBox.TextColor3 = colVal; smallTagRgbBtn.BackgroundColor3 = T.btn
-		refreshNickTagPalettes()
+		smallTagBox.TextColor3 = colVal
+		syncNickTagRgbButtons()
 	end)
 end
+
+smallTagBox:GetPropertyChangedSignal("Text"):Connect(function()
+	state.tagText = tostring(smallTagBox.Text or "")
+	if state.tagText ~= "" and not state.tagColorOn and not state.tagRgbOn then
+		state.tagColorOn = true
+		refreshNickTagPalettes()
+	end
+end)
 
 smallTagBox.FocusLost:Connect(function()
 	state.tagText = tostring(smallTagBox.Text or "")
@@ -1142,9 +1200,17 @@ end)
 smallTagRgbBtn.MouseButton1Click:Connect(function()
 	state.tagText = tostring(smallTagBox.Text or "")
 	state.tagRgbOn = not state.tagRgbOn
-	if state.tagRgbOn then state.tagColorOn = false end
-	smallTagRgbBtn.BackgroundColor3 = state.tagRgbOn and T.accent or T.btn
-	refreshNickTagPalettes()
+	if state.tagRgbOn then
+		state.tagColorOn = false
+		if state.syncRgbOn then
+			state.nickRgbOn = true
+			state.nickColorOn = false
+			tagHue = nickHue
+		end
+	elseif state.syncRgbOn then
+		state.nickRgbOn = false
+	end
+	syncNickTagRgbButtons()
 end)
 
 -- Pagina ESP
@@ -1481,7 +1547,7 @@ end)
 
 task.spawn(function()
 	pcall(function()
-		refreshNickTagPalettes()
+		syncNickTagRgbButtons()
 		refreshRarityButtons()
 		switchTab("skin")
 		syncFpsVisual()
@@ -1499,6 +1565,7 @@ task.spawn(function()
 			if type(savedCfg.autoExec) == "boolean" then state.autoExec = savedCfg.autoExec end
 			if type(savedCfg.minimized) == "boolean" then state.minimized = savedCfg.minimized end
 			if type(savedCfg.fpsCounterOn) == "boolean" then state.fpsCounterOn = savedCfg.fpsCounterOn end
+			if type(savedCfg.syncRgbOn) == "boolean" then state.syncRgbOn = savedCfg.syncRgbOn end
 			state.posX = tonumber(savedCfg.posX) or 4; state.posYScale = tonumber(savedCfg.posYScale) or 0; state.posYOffset = tonumber(savedCfg.posYOffset) or 100
 			state.customNickOn = savedCfg.customNickOn and true or false; state.customNickText = tostring(savedCfg.customNickText or "")
 			state.nickRgbOn = savedCfg.nickRgbOn and true or false; state.nickColorOn = savedCfg.nickColorOn and true or false
@@ -1511,11 +1578,8 @@ task.spawn(function()
 
 			nickBox.Text = state.customNickText; smallTagBox.Text = state.tagText
 			if state.customNickOn and state.customNickText ~= "" then applyNickBtn.BackgroundColor3 = Color3.fromRGB(22, 163, 74) end
-			nickRgbBtn.Text = "NICK RGB: " .. (state.nickRgbOn and "ON" or "OFF")
-			nickRgbBtn.BackgroundColor3 = state.nickRgbOn and T.accent or T.btn
-			smallTagRgbBtn.BackgroundColor3 = state.tagRgbOn and T.accent or T.btn
 			if state.tagColorOn then smallTagBox.TextColor3 = state.tagColor end
-			refreshNickTagPalettes()
+			syncNickTagRgbButtons()
 
 			syncPlayerEspVisual(); syncEspNameVisual(); syncFpsVisual()
 			if state.playerEspOn then updatePlayerEsp() end
