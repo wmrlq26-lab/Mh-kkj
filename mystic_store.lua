@@ -1060,10 +1060,11 @@ local function refreshNickTagPalettes()
 	end
 end
 
+local smallTagRgbBtn
+
 local function syncNickTagRgbButtons()
 	nickRgbBtn.Text = "NICK RGB: " .. (state.nickRgbOn and "ON" or "OFF")
 	nickRgbBtn.BackgroundColor3 = state.nickRgbOn and T.accent or T.btn
-	smallTagRgbBtn = smallTagRgbBtn
 	if smallTagRgbBtn then
 		smallTagRgbBtn.Text = state.tagRgbOn and "TAG RGB: ON" or "TAG RGB"
 		smallTagRgbBtn.BackgroundColor3 = state.tagRgbOn and T.accent or T.btn
@@ -1158,7 +1159,7 @@ smallTagBox.PlaceholderText = "Tag pequena..."; smallTagBox.PlaceholderColor3 = 
 smallTagBox.Text = ""; smallTagBox.TextColor3 = Color3.fromRGB(250, 204, 21)
 smallTagBox.Font = Enum.Font.GothamBlack; smallTagBox.TextSize = 8; smallTagBox.ClearTextOnFocus = false; smallTagBox.Parent = smallTagRow; corner(smallTagBox, 4)
 
-local smallTagRgbBtn = Instance.new("TextButton")
+smallTagRgbBtn = Instance.new("TextButton")
 smallTagRgbBtn.Size = UDim2.new(0.32, -4, 0, 20); smallTagRgbBtn.Position = UDim2.new(0.68, 0, 0.5, -10)
 smallTagRgbBtn.BackgroundColor3 = T.btn; smallTagRgbBtn.BorderSizePixel = 0
 smallTagRgbBtn.Text = "TAG RGB"; smallTagRgbBtn.TextColor3 = T.text; smallTagRgbBtn.Font = Enum.Font.GothamBlack; smallTagRgbBtn.TextSize = 8
