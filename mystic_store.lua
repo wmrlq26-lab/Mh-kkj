@@ -1,4 +1,4 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3 (SPIN + NICK/TAG Restaurados + Sem Lenco Vermelho + ESP Name na aba ESP)
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Sem Aba SPIN + FPS ON/OFF na Aba MISC em Verde Inferior Direito)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -322,17 +322,17 @@ local state = {
 	trailId = trailList[1] and trailList[1].id or "Fumaca",
 	punchId = punchList[1] and punchList[1].id or "Padrao",
 	rarityIdx = 1, tab = "skin", hideNames = false, autoExec = false, skinsRgb = false, minimized = false,
+	fpsCounterOn = false,
 	posX = 4, posYScale = 0, posYOffset = 100,
 	customNickOn = false, customNickText = "", nickRgbOn = false, nickColorOn = false,
 	nickColor = Color3.fromRGB(239, 68, 68),
 	tagText = "", tagRgbOn = false, tagColorOn = false,
 	tagColor = Color3.fromRGB(250, 204, 21),
-	spinBotOn = false, spinSlider = 55, playerEspOn = false, espNameOn = false,
+	playerEspOn = false, espNameOn = false,
 }
 
 local originalTexts = setmetatable({}, { __mode = "k" })
-local nickHue, tagHue, spinAngle = 0, 0.42, 0
-local function getSpinSpeed() return 15 + (state.spinSlider / 100) * 185 end
+local nickHue, tagHue = 0, 0.42
 
 local function colorToStr(col)
 	local c = col or Color3.fromRGB(255, 255, 255)
@@ -362,13 +362,12 @@ local function saveConfigToFile()
 		trailId = tostring(state.trailId ~= "" and state.trailId or "Fumaca"),
 		punchId = tostring(state.punchId ~= "" and state.punchId or "Padrao"),
 		hideNames = state.hideNames and true or false, autoExec = state.autoExec and true or false,
-		minimized = state.minimized and true or false,
+		minimized = state.minimized and true or false, fpsCounterOn = state.fpsCounterOn and true or false,
 		posX = tonumber(state.posX) or 4, posYScale = tonumber(state.posYScale) or 0, posYOffset = tonumber(state.posYOffset) or 100,
 		customNickOn = state.customNickOn and true or false, customNickText = tostring(state.customNickText or ""):gsub("|", "/"),
 		nickRgbOn = state.nickRgbOn and true or false, nickColorOn = state.nickColorOn and true or false, nickColor = state.nickColor,
 		tagText = tostring(state.tagText or ""):gsub("|", "/"),
 		tagRgbOn = state.tagRgbOn and true or false, tagColorOn = state.tagColorOn and true or false, tagColor = state.tagColor,
-		spinSlider = tonumber(state.spinSlider) or 55,
 		playerEspOn = state.playerEspOn and true or false, espNameOn = state.espNameOn and true or false,
 	}
 	cachedSessionCfg = cfg
@@ -380,7 +379,7 @@ local function saveConfigToFile()
 			cfg.customNickOn and "1" or "0", cfg.customNickText,
 			cfg.nickRgbOn and "1" or "0", cfg.nickColorOn and "1" or "0", colorToStr(cfg.nickColor),
 			cfg.tagText, cfg.tagRgbOn and "1" or "0", cfg.tagColorOn and "1" or "0", colorToStr(cfg.tagColor),
-			tostring(cfg.spinSlider), cfg.playerEspOn and "1" or "0", cfg.espNameOn and "1" or "0",
+			cfg.playerEspOn and "1" or "0", cfg.espNameOn and "1" or "0", cfg.fpsCounterOn and "1" or "0",
 		}, "|"))
 	end
 	return cfg
@@ -403,7 +402,7 @@ local function loadSavedConfig()
 						nickColor = strToColor(p[15], Color3.fromRGB(239, 68, 68)),
 						tagText = tostring(p[16] or ""), tagRgbOn = (p[17] == "1"), tagColorOn = (p[18] == "1"),
 						tagColor = strToColor(p[19], Color3.fromRGB(250, 204, 21)),
-						spinSlider = tonumber(p[20]) or 55, playerEspOn = (p[21] == "1"), espNameOn = (p[22] == "1"),
+						playerEspOn = (p[20] == "1"), espNameOn = (p[21] == "1"), fpsCounterOn = (p[22] == "1"),
 					}
 				end
 			end
@@ -495,64 +494,86 @@ local function applyRgbSkinFast(skinId, char)
 	if char and char.Parent then
 		pcall(function() char:SetAttribute("CharacterVisual", skinId) end)
 		local now = os.clock()
-		if (now - lastRgbBuildClock) >= 0.85 and type(appearance.Build) == "function" then
+		if (now - lastRgbBuildClock) >= 0.9 and type(appearance.Build) == "function" then
 			lastRgbBuildClock = now
 			pcall(appearance.Build, char, { skin = skinId, color = state.colorId or "COLOR12" })
 		end
 	end
 end
 
--- ══ NICK / TAG / SPIN / ESP / ESP NAME ══
+-- ══ NICK / TAG / ESP / ESP NAME ══
 local function paintLabel(lbl, col)
 	if not lbl or not lbl.Parent or not col then return end
-	for _, g in ipairs(lbl:GetDescendants()) do
+	for _, g in ipairs(lbl:GetChildren()) do
 		if g:IsA("UIGradient") then g.Enabled = false end
 	end
-	lbl.TextColor3 = col
-	if lbl.TextStrokeTransparency < 1 then
-		lbl.TextStrokeColor3 = Color3.fromRGB(10, 12, 20)
+	if lbl.TextColor3 ~= col then
+		lbl.TextColor3 = col
 	end
 end
 
-local function isSmallTagSlot(lbl, mainLbl)
-	if not lbl or not lbl:IsA("TextLabel") then return false end
-	if mainLbl and lbl == mainLbl then return false end
-	local lowN = string.lower(lbl.Name)
-	if string.find(lowN, "tag", 1, true)
-		or string.find(lowN, "badge", 1, true)
-		or string.find(lowN, "clan", 1, true)
-		or string.find(lowN, "small", 1, true)
-		or string.find(lowN, "sub", 1, true)
-	then
-		return true
-	end
-	if mainLbl and mainLbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X > 0 then
-		if lbl.AbsoluteSize.X < mainLbl.AbsoluteSize.X * 0.65 or lbl.TextSize < mainLbl.TextSize * 0.8 then
-			return true
+local function collectCharacterBillboards(char, out)
+	if not char or not char.Parent then return end
+	for _, c in ipairs(char:GetChildren()) do
+		if c:IsA("BillboardGui") and c.Name ~= "MysticEspNameGui" then
+			out[#out + 1] = c
+		elseif c:IsA("BasePart") or c:IsA("Model") then
+			for _, sub in ipairs(c:GetChildren()) do
+				if sub:IsA("BillboardGui") and sub.Name ~= "MysticEspNameGui" then
+					out[#out + 1] = sub
+				elseif sub:IsA("BasePart") then
+					for _, sub2 in ipairs(sub:GetChildren()) do
+						if sub2:IsA("BillboardGui") and sub2.Name ~= "MysticEspNameGui" then
+							out[#out + 1] = sub2
+						end
+					end
+				end
+			end
 		end
 	end
-	return false
 end
 
 local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
+	if not char or not char.Parent then return end
 	local nickToSet = (state.customNickOn and state.customNickText ~= "") and state.customNickText or nil
 	local restoreNick = (not state.customNickOn) or (state.customNickText == "")
 	local hasTag = (state.tagText ~= "")
 
-	local function processBillboard(bb)
-		if bb.Name == "MysticEspNameGui" then return end
+	local bbs = {}
+	collectCharacterBillboards(char, bbs)
+
+	for _, bb in ipairs(bbs) do
 		local labels = {}
-		for _, d in ipairs(bb:GetDescendants()) do
-			if d:IsA("TextLabel") and d.Name ~= "EspNickLabel" then
-				labels[#labels + 1] = d
+		for _, ch in ipairs(bb:GetChildren()) do
+			if ch:IsA("TextLabel") and ch.Name ~= "EspNickLabel" then
+				labels[#labels + 1] = ch
+			elseif ch:IsA("Frame") then
+				for _, fch in ipairs(ch:GetChildren()) do
+					if fch:IsA("TextLabel") and fch.Name ~= "EspNickLabel" then
+						labels[#labels + 1] = fch
+					end
+				end
 			end
 		end
+
 		table.sort(labels, function(a, b)
 			return (a.AbsoluteSize.X * a.AbsoluteSize.Y) > (b.AbsoluteSize.X * b.AbsoluteSize.Y)
 		end)
+
 		local mainLbl = labels[1]
 		for _, lbl in ipairs(labels) do
-			if isSmallTagSlot(lbl, mainLbl) then
+			local lowN = string.lower(lbl.Name)
+			local isTagSlot = (mainLbl and lbl ~= mainLbl)
+				and (
+					string.find(lowN, "tag", 1, true)
+					or string.find(lowN, "badge", 1, true)
+					or string.find(lowN, "clan", 1, true)
+					or string.find(lowN, "sub", 1, true)
+					or (mainLbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X < mainLbl.AbsoluteSize.X * 0.65)
+					or (lbl.TextSize < mainLbl.TextSize * 0.8)
+				)
+
+			if isTagSlot then
 				if hasTag then
 					if originalTexts[lbl] == nil then
 						local ok, cur = pcall(function() return lbl.Text end)
@@ -578,67 +599,6 @@ local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
 				if activeNickCol then paintLabel(lbl, activeNickCol) end
 			end
 		end
-	end
-
-	if char and char.Parent then
-		for _, d in ipairs(char:GetDescendants()) do
-			if d:IsA("BillboardGui") and d.Enabled ~= false then
-				processBillboard(d)
-			end
-		end
-	end
-
-	local pgui = lp and lp:FindFirstChild("PlayerGui")
-	if pgui then
-		local myName = string.lower(tostring(lp.Name or ""))
-		local myDisp = string.lower(tostring(lp.DisplayName or ""))
-		for _, d in ipairs(pgui:GetDescendants()) do
-			if d:IsA("TextLabel") and d.Name ~= "EspNickLabel" then
-				local topGui = d:FindFirstAncestorOfClass("ScreenGui")
-				if not (topGui and string.find(topGui.Name, "MysticStorePanel", 1, true)) then
-					local ok, txt = pcall(function() return d.Text end)
-					if ok and type(txt) == "string" and txt ~= "" then
-						local lowT = string.lower(txt)
-						local lowN = string.lower(d.Name)
-						local origLow = originalTexts[d] and string.lower(originalTexts[d]) or ""
-						local matchesName = (myName ~= "" and (string.find(lowT, myName, 1, true) or string.find(origLow, myName, 1, true)))
-							or (myDisp ~= "" and (string.find(lowT, myDisp, 1, true) or string.find(origLow, myDisp, 1, true)))
-						local matchesCustom = state.customNickOn and state.customNickText ~= "" and (string.find(txt, state.customNickText, 1, true) or origLow == string.lower(state.customNickText))
-						local matchesField = string.find(lowN, "user", 1, true)
-							or string.find(lowN, "name", 1, true)
-							or string.find(lowN, "nick", 1, true)
-							or string.find(lowN, "player", 1, true)
-						if matchesName or matchesCustom or (matchesField and #txt >= 2) then
-							if restoreNick and originalTexts[d] ~= nil then
-								d.Text = originalTexts[d]
-								originalTexts[d] = nil
-							elseif nickToSet then
-								if originalTexts[d] == nil then
-									originalTexts[d] = txt
-								end
-								if d.Text ~= nickToSet then d.Text = nickToSet end
-							end
-							if activeNickCol then paintLabel(d, activeNickCol) end
-						end
-					end
-				end
-			end
-		end
-	end
-end
-
-local function applySpinV4(char, dt)
-	if not char or not char.Parent then return end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hum or not hrp or hum.Health <= 0 then return end
-	hum.AutoRotate = false
-	spinAngle = (spinAngle + getSpinSpeed() * dt) % (math.pi * 2)
-	local baseRot = CFrame.Angles(0, spinAngle, 0)
-	hrp.CFrame = CFrame.new(hrp.Position) * baseRot
-	local model = char:FindFirstChild("StumbleOriginal056")
-	if model and model:IsA("Model") and model.PrimaryPart then
-		pcall(function() model:PivotTo(CFrame.new(model.PrimaryPart.Position) * baseRot) end)
 	end
 end
 
@@ -676,13 +636,13 @@ local function getInGameNick(plr, char)
 			local v = char:GetAttribute(attr)
 			if type(v) == "string" and v ~= "" and string.lower(v) ~= string.lower(plr.Name) then return v end
 		end
-		for _, d in ipairs(char:GetDescendants()) do
-			if d:IsA("BillboardGui") and d.Name ~= "MysticEspNameGui" then
-				for _, lbl in ipairs(d:GetDescendants()) do
-					if lbl:IsA("TextLabel") and type(lbl.Text) == "string" and lbl.Text ~= "" then
-						local clean = lbl.Text:gsub("^%s+", ""):gsub("%s+$", "")
-						if clean ~= "" and string.lower(clean) ~= string.lower(plr.Name) then return clean end
-					end
+		local bbs = {}
+		collectCharacterBillboards(char, bbs)
+		for _, bb in ipairs(bbs) do
+			for _, ch in ipairs(bb:GetChildren()) do
+				if ch:IsA("TextLabel") and ch.Name ~= "EspNickLabel" and type(ch.Text) == "string" and ch.Text ~= "" then
+					local clean = ch.Text:gsub("^%s+", ""):gsub("%s+$", "")
+					if clean ~= "" and string.lower(clean) ~= string.lower(plr.Name) then return clean end
 				end
 			end
 		end
@@ -746,25 +706,77 @@ local function updateEspNames()
 	end
 end
 
-local lastNickTick = 0
-local lastEspTick = 0
-RunService.RenderStepped:Connect(function(dt)
-	local char = lp and lp.Character
-	if state.spinBotOn then applySpinV4(char, dt) end
+-- ══ UI ══
+pcall(function() local g = CG:FindFirstChild("MysticStorePanelV3"); if g then g:Destroy() end end)
 
-	local now = os.clock()
+local gui = Instance.new("ScreenGui")
+gui.Name = "MysticStorePanelV3"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+if not pcall(function() gui.Parent = CG end) then
+	pcall(function() gui.Parent = lp:WaitForChild("PlayerGui") end)
+end
+
+-- Contador de FPS verde no canto inferior direito (controlado pelo toggle FPS na aba MISC)
+local fpsBadge = Instance.new("Frame")
+fpsBadge.Name = "FpsBadge"
+fpsBadge.AnchorPoint = Vector2.new(1, 1)
+fpsBadge.Size = UDim2.new(0, 68, 0, 22)
+fpsBadge.Position = UDim2.new(1, -10, 1, -10)
+fpsBadge.BackgroundColor3 = Color3.fromRGB(12, 20, 16)
+fpsBadge.BackgroundTransparency = 0.15
+fpsBadge.BorderSizePixel = 0
+fpsBadge.Visible = false
+fpsBadge.Parent = gui
+
+local fpsCorner = Instance.new("UICorner")
+fpsCorner.CornerRadius = UDim.new(0, 6)
+fpsCorner.Parent = fpsBadge
+
+local fpsStroke = Instance.new("UIStroke")
+fpsStroke.Color = Color3.fromRGB(34, 197, 94)
+fpsStroke.Thickness = 1
+fpsStroke.Parent = fpsBadge
+
+local fpsLbl = Instance.new("TextLabel")
+fpsLbl.Size = UDim2.new(1, 0, 1, 0)
+fpsLbl.BackgroundTransparency = 1
+fpsLbl.Text = "FPS: --"
+fpsLbl.TextColor3 = Color3.fromRGB(34, 197, 94)
+fpsLbl.Font = Enum.Font.GothamBlack
+fpsLbl.TextSize = 9
+fpsLbl.TextXAlignment = Enum.TextXAlignment.Center
+fpsLbl.Parent = fpsBadge
+
+local fpsFrames, fpsAccum = 0, 0
+RunService.RenderStepped:Connect(function(dt)
+	if state.fpsCounterOn then
+		fpsFrames += 1
+		fpsAccum += dt
+		if fpsAccum >= 0.45 then
+			local realFps = math.floor(fpsFrames / fpsAccum + 0.5)
+			fpsFrames = 0
+			fpsAccum = 0
+			if fpsLbl and fpsLbl.Parent then
+				fpsLbl.Text = "FPS: " .. tostring(realFps)
+			end
+		end
+	end
+
+	local char = lp and lp.Character
 	local needVisual = state.nickRgbOn or state.nickColorOn or state.customNickOn or state.tagRgbOn or state.tagColorOn or (state.tagText ~= "")
-	if needVisual and (now - lastNickTick) >= 0.05 then
-		lastNickTick = now
-		if state.nickRgbOn then nickHue = (nickHue + dt * 0.95) % 1 end
-		if state.tagRgbOn then tagHue = (tagHue + dt * 1.15) % 1 end
+	if needVisual and char and char.Parent then
+		if state.nickRgbOn then nickHue = (nickHue + dt * 0.9) % 1 end
+		if state.tagRgbOn then tagHue = (tagHue + dt * 1.1) % 1 end
 		local activeNickCol = state.nickRgbOn and Color3.fromHSV(nickHue, 0.95, 1) or (state.nickColorOn and state.nickColor or nil)
 		local activeTagCol = state.tagRgbOn and Color3.fromHSV(tagHue, 1, 1) or (state.tagColorOn and state.tagColor or nil)
 		applyNickAndSmallTag(char, activeNickCol, activeTagCol)
 	end
+end)
 
-	if (now - lastEspTick) >= 0.45 then
-		lastEspTick = now
+task.spawn(function()
+	while true do
+		task.wait(0.75)
 		if state.playerEspOn then updatePlayerEsp() end
 		if state.espNameOn then updateEspNames() end
 	end
@@ -776,17 +788,6 @@ Players.PlayerRemoving:Connect(function(plr)
 		local g = plr.Character:FindFirstChild("MysticEspNameGui"); if g then g:Destroy() end
 	end
 end)
-
--- ══ UI ══
-pcall(function() local g = CG:FindFirstChild("MysticStorePanelV3"); if g then g:Destroy() end end)
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "MysticStorePanelV3"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-if not pcall(function() gui.Parent = CG end) then
-	pcall(function() gui.Parent = lp:WaitForChild("PlayerGui") end)
-end
 
 local T = {
 	bg = Color3.fromRGB(13, 14, 22), header = Color3.fromRGB(20, 22, 35),
@@ -858,7 +859,6 @@ end
 
 local dragging, dragInput = false, nil
 local dragStartPos, startMainPos = Vector2.zero, main.Position
-local draggingSpinSlider = false
 
 local function clampMainPosition(targetPos)
 	local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
@@ -869,7 +869,6 @@ local function clampMainPosition(targetPos)
 end
 
 header.InputBegan:Connect(function(input)
-	if draggingSpinSlider then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		local pos2 = input.Position
 		local function hitBtn(btn)
@@ -892,8 +891,20 @@ header.InputBegan:Connect(function(input)
 end)
 
 header.InputChanged:Connect(function(input)
-	if not draggingSpinSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+	if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		if dragging and not dragInput then dragInput = input end
+	end
+end)
+
+UIS.InputChanged:Connect(function(input)
+	if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		if dragging and input == dragInput then
+			local delta = input.Position - dragStartPos
+			local nextPos = UDim2.new(startMainPos.X.Scale, startMainPos.X.Offset + delta.X, startMainPos.Y.Scale, startMainPos.Y.Offset + delta.Y)
+			local clamped = clampMainPosition(nextPos)
+			safeSetProp(main, "Position", clamped)
+			state.posX = clamped.X.Offset; state.posYScale = 0; state.posYOffset = clamped.Y.Offset
+		end
 	end
 end)
 
@@ -991,6 +1002,7 @@ saveCfgBtn.BackgroundColor3 = T.accent; saveCfgBtn.BorderSizePixel = 0; saveCfgB
 saveCfgBtn.TextColor3 = T.text; saveCfgBtn.Font = Enum.Font.GothamBlack; saveCfgBtn.TextSize = 8; saveCfgBtn.Parent = saveCfgBox; corner(saveCfgBtn, 6)
 
 local hideToggle = makeMiscToggleRow(4, "NOMES")
+local fpsToggle = makeMiscToggleRow(5, "FPS")
 
 -- Pagina NICK / TAG
 local nickTagPage = Instance.new("Frame")
@@ -1135,80 +1147,7 @@ smallTagRgbBtn.MouseButton1Click:Connect(function()
 	refreshNickTagPalettes()
 end)
 
--- Pagina SPIN
-local spinPage = Instance.new("Frame")
-spinPage.Size = UDim2.new(1, 0, 1, -28); spinPage.Position = UDim2.new(0, 0, 0, 28)
-spinPage.BackgroundTransparency = 1; spinPage.Visible = false; spinPage.Parent = body
-
-local spinToggleBtn = Instance.new("TextButton")
-spinToggleBtn.Size = UDim2.new(1, 0, 0, 34); spinToggleBtn.Position = UDim2.new(0, 0, 0, 6)
-spinToggleBtn.BackgroundColor3 = T.btn; spinToggleBtn.BorderSizePixel = 0
-spinToggleBtn.Text = "SPINBOT: OFF"; spinToggleBtn.TextColor3 = T.text
-spinToggleBtn.Font = Enum.Font.GothamBlack; spinToggleBtn.TextSize = 9; spinToggleBtn.Parent = spinPage; corner(spinToggleBtn, 6)
-
-local spinSliderBox = Instance.new("Frame")
-spinSliderBox.Size = UDim2.new(1, 0, 0, 62); spinSliderBox.Position = UDim2.new(0, 0, 0, 48)
-spinSliderBox.BackgroundColor3 = T.card; spinSliderBox.BorderSizePixel = 0; spinSliderBox.Parent = spinPage; corner(spinSliderBox, 6)
-
-local spinSliderLbl = textLabel(spinSliderBox, UDim2.new(1, -12, 0, 18), UDim2.new(0, 8, 0, 4), "SPIN VEL: " .. tostring(state.spinSlider) .. "%", Enum.Font.GothamBlack, 8, T.text)
-
-local spinTrackBg = Instance.new("Frame")
-spinTrackBg.Size = UDim2.new(1, -16, 0, 12); spinTrackBg.Position = UDim2.new(0, 8, 0, 32)
-spinTrackBg.BackgroundColor3 = T.bg; spinTrackBg.BorderSizePixel = 0; spinTrackBg.Active = true; spinTrackBg.Parent = spinSliderBox; corner(spinTrackBg, 6)
-
-local spinTrackFill = Instance.new("Frame")
-spinTrackFill.Size = UDim2.new(state.spinSlider / 100, 0, 1, 0); spinTrackFill.Position = UDim2.new(0, 0, 0, 0)
-spinTrackFill.BackgroundColor3 = T.accent; spinTrackFill.BorderSizePixel = 0; spinTrackFill.Parent = spinTrackBg; corner(spinTrackFill, 6)
-
-local spinKnob = Instance.new("Frame")
-spinKnob.Size = UDim2.new(0, 16, 0, 16); spinKnob.Position = UDim2.new(state.spinSlider / 100, -8, 0.5, -8)
-spinKnob.BackgroundColor3 = T.text; spinKnob.BorderSizePixel = 0; spinKnob.Parent = spinTrackBg; corner(spinKnob, 8)
-
-local function setSpinSliderFromX(screenX)
-	local absPos, absSize = spinTrackBg.AbsolutePosition.X, spinTrackBg.AbsoluteSize.X
-	if absSize <= 0 then return end
-	local alpha = math.clamp((screenX - absPos) / absSize, 0, 1)
-	state.spinSlider = math.floor(alpha * 100 + 0.5)
-	spinTrackFill.Size = UDim2.new(state.spinSlider / 100, 0, 1, 0)
-	spinKnob.Position = UDim2.new(state.spinSlider / 100, -8, 0.5, -8)
-	spinSliderLbl.Text = "SPIN VEL: " .. tostring(state.spinSlider) .. "%"
-end
-
-spinTrackBg.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		draggingSpinSlider = true; dragging = false; dragInput = nil
-		setSpinSliderFromX(input.Position.X)
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then draggingSpinSlider = false end
-		end)
-	end
-end)
-
-UIS.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		if draggingSpinSlider then
-			setSpinSliderFromX(input.Position.X)
-		elseif dragging and input == dragInput then
-			local delta = input.Position - dragStartPos
-			local nextPos = UDim2.new(startMainPos.X.Scale, startMainPos.X.Offset + delta.X, startMainPos.Y.Scale, startMainPos.Y.Offset + delta.Y)
-			local clamped = clampMainPosition(nextPos)
-			safeSetProp(main, "Position", clamped)
-			state.posX = clamped.X.Offset; state.posYScale = 0; state.posYOffset = clamped.Y.Offset
-		end
-	end
-end)
-
-spinToggleBtn.MouseButton1Click:Connect(function()
-	state.spinBotOn = not state.spinBotOn
-	spinToggleBtn.Text = "SPINBOT: " .. (state.spinBotOn and "ON" or "OFF")
-	spinToggleBtn.BackgroundColor3 = state.spinBotOn and T.accent or T.btn
-	if not state.spinBotOn then
-		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-		if hum then hum.AutoRotate = true end
-	end
-end)
-
--- Pagina ESP (PLAYER ESP + ESP NAME + LIMPAR ESP)
+-- Pagina ESP
 local espPage = Instance.new("Frame")
 espPage.Size = UDim2.new(1, 0, 1, -28); espPage.Position = UDim2.new(0, 0, 0, 28)
 espPage.BackgroundTransparency = 1; espPage.Visible = false; espPage.Parent = body
@@ -1276,7 +1215,7 @@ local function getThumbData(tabId, item)
 end
 
 local function canTouchUi()
-	if state.minimized or state.tab == "misc" or state.tab == "nicktag" or state.tab == "spin" or state.tab == "esp" then return false end
+	if state.minimized or state.tab == "misc" or state.tab == "nicktag" or state.tab == "esp" then return false end
 	return gui and gui.Parent ~= nil and main and main.Parent ~= nil and body and body.Parent ~= nil
 end
 
@@ -1347,7 +1286,7 @@ local function startSkinsRgbLoop()
 				end
 				idx += 1
 			end
-			task.wait(1.3)
+			task.wait(1.35)
 		end
 	end)
 end
@@ -1369,14 +1308,12 @@ local function buildGrid(tabId)
 	local isSkinTab = (tabId == "skin")
 	local isMiscTab = (tabId == "misc")
 	local isNickTagTab = (tabId == "nicktag")
-	local isSpinTab = (tabId == "spin")
 	local isEspTab = (tabId == "esp")
-	local isCustomPage = isMiscTab or isNickTagTab or isSpinTab or isEspTab
+	local isCustomPage = isMiscTab or isNickTagTab or isEspTab
 
 	safeSetProp(rarityBar, "Visible", isSkinTab)
 	safeSetProp(miscFrame, "Visible", isMiscTab)
 	safeSetProp(nickTagPage, "Visible", isNickTagTab)
-	safeSetProp(spinPage, "Visible", isSpinTab)
 	safeSetProp(espPage, "Visible", isEspTab)
 	safeSetProp(previewFrame, "Visible", not isCustomPage)
 	safeSetProp(gridClip, "Visible", not isCustomPage)
@@ -1445,8 +1382,8 @@ local tabBtns = {}
 local TABS = {
 	{ id = "skin", label = "SKIN" }, { id = "color", label = "COR" },
 	{ id = "trail", label = "TRAIL" }, { id = "punch", label = "PUNCH" },
-	{ id = "nicktag", label = "NICK/TAG" }, { id = "spin", label = "SPIN" },
-	{ id = "esp", label = "ESP" }, { id = "misc", label = "MISC" },
+	{ id = "nicktag", label = "NICK/TAG" }, { id = "esp", label = "ESP" },
+	{ id = "misc", label = "MISC" },
 }
 
 local function switchTab(tabId)
@@ -1475,6 +1412,19 @@ local function syncAutoExecVisual()
 	safeSetProp(autoExecToggle, "BackgroundColor3", state.autoExec and T.accentD or T.btn)
 end
 
+local function syncFpsVisual()
+	local on = state.fpsCounterOn and true or false
+	safeSetProp(fpsToggle, "Text", on and "ON" or "OFF")
+	safeSetProp(fpsToggle, "TextColor3", on and T.text or T.muted)
+	safeSetProp(fpsToggle, "BackgroundColor3", on and Color3.fromRGB(22, 163, 74) or T.btn)
+	safeSetProp(fpsBadge, "Visible", on)
+	if not on then
+		fpsFrames = 0
+		fpsAccum = 0
+		safeSetProp(fpsLbl, "Text", "FPS: --")
+	end
+end
+
 autoExecToggle.MouseButton1Click:Connect(function()
 	state.autoExec = not state.autoExec
 	syncAutoExecVisual(); saveConfigToFile()
@@ -1483,6 +1433,11 @@ end)
 
 skinsRgbToggle.MouseButton1Click:Connect(function()
 	setSkinsRgbEnabled(not state.skinsRgb)
+end)
+
+fpsToggle.MouseButton1Click:Connect(function()
+	state.fpsCounterOn = not state.fpsCounterOn
+	syncFpsVisual()
 end)
 
 saveCfgBtn.MouseButton1Click:Connect(function()
@@ -1529,6 +1484,7 @@ task.spawn(function()
 		refreshNickTagPalettes()
 		refreshRarityButtons()
 		switchTab("skin")
+		syncFpsVisual()
 
 		local savedCfg = loadSavedConfig()
 		if type(savedCfg) == "table" then
@@ -1542,6 +1498,7 @@ task.spawn(function()
 			if type(savedCfg.hideNames) == "boolean" then state.hideNames = savedCfg.hideNames end
 			if type(savedCfg.autoExec) == "boolean" then state.autoExec = savedCfg.autoExec end
 			if type(savedCfg.minimized) == "boolean" then state.minimized = savedCfg.minimized end
+			if type(savedCfg.fpsCounterOn) == "boolean" then state.fpsCounterOn = savedCfg.fpsCounterOn end
 			state.posX = tonumber(savedCfg.posX) or 4; state.posYScale = tonumber(savedCfg.posYScale) or 0; state.posYOffset = tonumber(savedCfg.posYOffset) or 100
 			state.customNickOn = savedCfg.customNickOn and true or false; state.customNickText = tostring(savedCfg.customNickText or "")
 			state.nickRgbOn = savedCfg.nickRgbOn and true or false; state.nickColorOn = savedCfg.nickColorOn and true or false
@@ -1549,7 +1506,6 @@ task.spawn(function()
 			state.tagText = tostring(savedCfg.tagText or "")
 			state.tagRgbOn = savedCfg.tagRgbOn and true or false; state.tagColorOn = savedCfg.tagColorOn and true or false
 			state.tagColor = savedCfg.tagColor or Color3.fromRGB(250, 204, 21)
-			state.spinSlider = tonumber(savedCfg.spinSlider) or 55
 			state.playerEspOn = savedCfg.playerEspOn and true or false
 			state.espNameOn = savedCfg.espNameOn and true or false
 
@@ -1561,11 +1517,7 @@ task.spawn(function()
 			if state.tagColorOn then smallTagBox.TextColor3 = state.tagColor end
 			refreshNickTagPalettes()
 
-			spinTrackFill.Size = UDim2.new(state.spinSlider / 100, 0, 1, 0)
-			spinKnob.Position = UDim2.new(state.spinSlider / 100, -8, 0.5, -8)
-			spinSliderLbl.Text = "SPIN VEL: " .. tostring(state.spinSlider) .. "%"
-
-			syncPlayerEspVisual(); syncEspNameVisual()
+			syncPlayerEspVisual(); syncEspNameVisual(); syncFpsVisual()
 			if state.playerEspOn then updatePlayerEsp() end
 			if state.espNameOn then updateEspNames() end
 
