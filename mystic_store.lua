@@ -1,4 +1,4 @@
--- MYSTIC STORE | Cosmetics & Visuals Panel V3 (Revisado, Sem Lenco Vermelho & Anti-Lag)
+-- MYSTIC STORE | Cosmetics & Visuals Panel V3 (SPIN + NICK/TAG Restaurados + Sem Lenco Vermelho + ESP Name na aba ESP)
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -118,8 +118,7 @@ end
 
 local function findSkinThumbRaw(item)
 	if not item then return "" end
-	local id = tostring(item.id or "")
-	local name = tostring(item.name or "")
+	local id, name = tostring(item.id or ""), tostring(item.name or "")
 	local combined = normalizeText(name) .. " " .. normalizeText(id)
 	if string.find(combined, "molet", 1, true) or string.find(combined, "hood", 1, true) then
 		return "rbxassetid://74327146599508"
@@ -331,6 +330,7 @@ local state = {
 	spinBotOn = false, spinSlider = 55, playerEspOn = false, espNameOn = false,
 }
 
+local originalTexts = setmetatable({}, { __mode = "k" })
 local nickHue, tagHue, spinAngle = 0, 0.42, 0
 local function getSpinSpeed() return 15 + (state.spinSlider / 100) * 185 end
 
@@ -502,23 +502,124 @@ local function applyRgbSkinFast(skinId, char)
 	end
 end
 
--- ══ NICK / TAG / SPIN / ESP / ESP NAME (LEVE) ══
+-- ══ NICK / TAG / SPIN / ESP / ESP NAME ══
+local function paintLabel(lbl, col)
+	if not lbl or not lbl.Parent or not col then return end
+	for _, g in ipairs(lbl:GetDescendants()) do
+		if g:IsA("UIGradient") then g.Enabled = false end
+	end
+	lbl.TextColor3 = col
+	if lbl.TextStrokeTransparency < 1 then
+		lbl.TextStrokeColor3 = Color3.fromRGB(10, 12, 20)
+	end
+end
+
+local function isSmallTagSlot(lbl, mainLbl)
+	if not lbl or not lbl:IsA("TextLabel") then return false end
+	if mainLbl and lbl == mainLbl then return false end
+	local lowN = string.lower(lbl.Name)
+	if string.find(lowN, "tag", 1, true)
+		or string.find(lowN, "badge", 1, true)
+		or string.find(lowN, "clan", 1, true)
+		or string.find(lowN, "small", 1, true)
+		or string.find(lowN, "sub", 1, true)
+	then
+		return true
+	end
+	if mainLbl and mainLbl.AbsoluteSize.X > 0 and lbl.AbsoluteSize.X > 0 then
+		if lbl.AbsoluteSize.X < mainLbl.AbsoluteSize.X * 0.65 or lbl.TextSize < mainLbl.TextSize * 0.8 then
+			return true
+		end
+	end
+	return false
+end
+
 local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
-	if not char or not char.Parent then return end
 	local nickToSet = (state.customNickOn and state.customNickText ~= "") and state.customNickText or nil
+	local restoreNick = (not state.customNickOn) or (state.customNickText == "")
 	local hasTag = (state.tagText ~= "")
-	for _, d in ipairs(char:GetChildren()) do
-		if d:IsA("BillboardGui") and d.Name ~= "MysticEspNameGui" then
-			for _, lbl in ipairs(d:GetChildren()) do
-				if lbl:IsA("TextLabel") and lbl.Name ~= "EspNickLabel" then
-					local lowN = string.lower(lbl.Name)
-					local isTag = string.find(lowN, "tag", 1, true) or string.find(lowN, "badge", 1, true)
-					if isTag and hasTag then
-						lbl.Text = state.tagText
-						if activeTagCol then lbl.TextColor3 = activeTagCol end
-					elseif not isTag then
-						if nickToSet then lbl.Text = nickToSet end
-						if activeNickCol then lbl.TextColor3 = activeNickCol end
+
+	local function processBillboard(bb)
+		if bb.Name == "MysticEspNameGui" then return end
+		local labels = {}
+		for _, d in ipairs(bb:GetDescendants()) do
+			if d:IsA("TextLabel") and d.Name ~= "EspNickLabel" then
+				labels[#labels + 1] = d
+			end
+		end
+		table.sort(labels, function(a, b)
+			return (a.AbsoluteSize.X * a.AbsoluteSize.Y) > (b.AbsoluteSize.X * b.AbsoluteSize.Y)
+		end)
+		local mainLbl = labels[1]
+		for _, lbl in ipairs(labels) do
+			if isSmallTagSlot(lbl, mainLbl) then
+				if hasTag then
+					if originalTexts[lbl] == nil then
+						local ok, cur = pcall(function() return lbl.Text end)
+						if ok and type(cur) == "string" then originalTexts[lbl] = cur end
+					end
+					if lbl.Text ~= state.tagText then lbl.Text = state.tagText end
+					if activeTagCol then paintLabel(lbl, activeTagCol) end
+				elseif originalTexts[lbl] ~= nil then
+					lbl.Text = originalTexts[lbl]
+					originalTexts[lbl] = nil
+				end
+			else
+				if restoreNick and originalTexts[lbl] ~= nil then
+					lbl.Text = originalTexts[lbl]
+					originalTexts[lbl] = nil
+				elseif nickToSet then
+					if originalTexts[lbl] == nil then
+						local ok, cur = pcall(function() return lbl.Text end)
+						if ok and type(cur) == "string" then originalTexts[lbl] = cur end
+					end
+					if lbl.Text ~= nickToSet then lbl.Text = nickToSet end
+				end
+				if activeNickCol then paintLabel(lbl, activeNickCol) end
+			end
+		end
+	end
+
+	if char and char.Parent then
+		for _, d in ipairs(char:GetDescendants()) do
+			if d:IsA("BillboardGui") and d.Enabled ~= false then
+				processBillboard(d)
+			end
+		end
+	end
+
+	local pgui = lp and lp:FindFirstChild("PlayerGui")
+	if pgui then
+		local myName = string.lower(tostring(lp.Name or ""))
+		local myDisp = string.lower(tostring(lp.DisplayName or ""))
+		for _, d in ipairs(pgui:GetDescendants()) do
+			if d:IsA("TextLabel") and d.Name ~= "EspNickLabel" then
+				local topGui = d:FindFirstAncestorOfClass("ScreenGui")
+				if not (topGui and string.find(topGui.Name, "MysticStorePanel", 1, true)) then
+					local ok, txt = pcall(function() return d.Text end)
+					if ok and type(txt) == "string" and txt ~= "" then
+						local lowT = string.lower(txt)
+						local lowN = string.lower(d.Name)
+						local origLow = originalTexts[d] and string.lower(originalTexts[d]) or ""
+						local matchesName = (myName ~= "" and (string.find(lowT, myName, 1, true) or string.find(origLow, myName, 1, true)))
+							or (myDisp ~= "" and (string.find(lowT, myDisp, 1, true) or string.find(origLow, myDisp, 1, true)))
+						local matchesCustom = state.customNickOn and state.customNickText ~= "" and (string.find(txt, state.customNickText, 1, true) or origLow == string.lower(state.customNickText))
+						local matchesField = string.find(lowN, "user", 1, true)
+							or string.find(lowN, "name", 1, true)
+							or string.find(lowN, "nick", 1, true)
+							or string.find(lowN, "player", 1, true)
+						if matchesName or matchesCustom or (matchesField and #txt >= 2) then
+							if restoreNick and originalTexts[d] ~= nil then
+								d.Text = originalTexts[d]
+								originalTexts[d] = nil
+							elseif nickToSet then
+								if originalTexts[d] == nil then
+									originalTexts[d] = txt
+								end
+								if d.Text ~= nickToSet then d.Text = nickToSet end
+							end
+							if activeNickCol then paintLabel(d, activeNickCol) end
+						end
 					end
 				end
 			end
@@ -526,14 +627,19 @@ local function applyNickAndSmallTag(char, activeNickCol, activeTagCol)
 	end
 end
 
-local function applySpinStep(char, dt)
+local function applySpinV4(char, dt)
 	if not char or not char.Parent then return end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	if not hrp or not hum or hum.Health <= 0 then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hum or not hrp or hum.Health <= 0 then return end
 	hum.AutoRotate = false
 	spinAngle = (spinAngle + getSpinSpeed() * dt) % (math.pi * 2)
-	hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
+	local baseRot = CFrame.Angles(0, spinAngle, 0)
+	hrp.CFrame = CFrame.new(hrp.Position) * baseRot
+	local model = char:FindFirstChild("StumbleOriginal056")
+	if model and model:IsA("Model") and model.PrimaryPart then
+		pcall(function() model:PivotTo(CFrame.new(model.PrimaryPart.Position) * baseRot) end)
+	end
 end
 
 local function clearPlayerEsp()
@@ -564,16 +670,15 @@ local function updatePlayerEsp()
 	end
 end
 
--- ESP NAME: prioriza nick do jogo (atributos / BillboardGui / DisplayName) antes do nome Roblox
 local function getInGameNick(plr, char)
 	if char then
 		for _, attr in ipairs({ "GameNick", "Nick", "DisplayNick", "PlayerName", "CustomName", "InGameName", "TagName" }) do
 			local v = char:GetAttribute(attr)
 			if type(v) == "string" and v ~= "" and string.lower(v) ~= string.lower(plr.Name) then return v end
 		end
-		for _, d in ipairs(char:GetChildren()) do
+		for _, d in ipairs(char:GetDescendants()) do
 			if d:IsA("BillboardGui") and d.Name ~= "MysticEspNameGui" then
-				for _, lbl in ipairs(d:GetChildren()) do
+				for _, lbl in ipairs(d:GetDescendants()) do
 					if lbl:IsA("TextLabel") and type(lbl.Text) == "string" and lbl.Text ~= "" then
 						local clean = lbl.Text:gsub("^%s+", ""):gsub("%s+$", "")
 						if clean ~= "" and string.lower(clean) ~= string.lower(plr.Name) then return clean end
@@ -641,22 +746,25 @@ local function updateEspNames()
 	end
 end
 
-local lastSlowTick = 0
+local lastNickTick = 0
+local lastEspTick = 0
 RunService.RenderStepped:Connect(function(dt)
 	local char = lp and lp.Character
-	if state.spinBotOn then applySpinStep(char, dt) end
+	if state.spinBotOn then applySpinV4(char, dt) end
 
 	local now = os.clock()
-	if (now - lastSlowTick) >= 0.45 then
-		lastSlowTick = now
-		local needVisual = state.nickRgbOn or state.nickColorOn or state.customNickOn or state.tagRgbOn or state.tagColorOn or (state.tagText ~= "")
-		if needVisual then
-			if state.nickRgbOn then nickHue = (nickHue + 0.12) % 1 end
-			if state.tagRgbOn then tagHue = (tagHue + 0.14) % 1 end
-			local activeNickCol = state.nickRgbOn and Color3.fromHSV(nickHue, 0.95, 1) or (state.nickColorOn and state.nickColor or nil)
-			local activeTagCol = state.tagRgbOn and Color3.fromHSV(tagHue, 1, 1) or (state.tagColorOn and state.tagColor or nil)
-			applyNickAndSmallTag(char, activeNickCol, activeTagCol)
-		end
+	local needVisual = state.nickRgbOn or state.nickColorOn or state.customNickOn or state.tagRgbOn or state.tagColorOn or (state.tagText ~= "")
+	if needVisual and (now - lastNickTick) >= 0.05 then
+		lastNickTick = now
+		if state.nickRgbOn then nickHue = (nickHue + dt * 0.95) % 1 end
+		if state.tagRgbOn then tagHue = (tagHue + dt * 1.15) % 1 end
+		local activeNickCol = state.nickRgbOn and Color3.fromHSV(nickHue, 0.95, 1) or (state.nickColorOn and state.nickColor or nil)
+		local activeTagCol = state.tagRgbOn and Color3.fromHSV(tagHue, 1, 1) or (state.tagColorOn and state.tagColor or nil)
+		applyNickAndSmallTag(char, activeNickCol, activeTagCol)
+	end
+
+	if (now - lastEspTick) >= 0.45 then
+		lastEspTick = now
 		if state.playerEspOn then updatePlayerEsp() end
 		if state.espNameOn then updateEspNames() end
 	end
@@ -1082,7 +1190,8 @@ UIS.InputChanged:Connect(function(input)
 			setSpinSliderFromX(input.Position.X)
 		elseif dragging and input == dragInput then
 			local delta = input.Position - dragStartPos
-			local clamped = clampMainPosition(UDim2.new(startMainPos.X.Scale, startMainPos.X.Offset + delta.X, startMainPos.Y.Scale, startMainPos.Y.Offset + delta.Y))
+			local nextPos = UDim2.new(startMainPos.X.Scale, startMainPos.X.Offset + delta.X, startMainPos.Y.Scale, startMainPos.Y.Offset + delta.Y)
+			local clamped = clampMainPosition(nextPos)
 			safeSetProp(main, "Position", clamped)
 			state.posX = clamped.X.Offset; state.posYScale = 0; state.posYOffset = clamped.Y.Offset
 		end
